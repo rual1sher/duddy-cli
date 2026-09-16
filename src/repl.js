@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { printBanner } from './banner.js';
 import { streamChatCompletion } from './api.js';
+import { createTerminalStreamRenderer } from './formatter.js';
 import {
   AVAILABLE_COMMANDS,
   handleHelpCommand,
@@ -153,6 +154,7 @@ export async function startRepl(session) {
       color: 'cyan'
     }).start();
 
+    const renderer = createTerminalStreamRenderer();
     let startedStreaming = false;
     let assistantText = '';
 
@@ -162,18 +164,19 @@ export async function startRepl(session) {
         model: session.model,
         messages: messagesToSend,
         maxTokens: session.maxTokens || 750,
-        temperature: session.temperature ?? 0.3,
+        temperature: session.temperature ?? 0.4,
         onChunk: (chunk) => {
           if (!startedStreaming) {
             spinner.stop();
-            process.stdout.write(chalk.bold.green('duddy > '));
+            process.stdout.write(chalk.bold.green('duddy > ') + '\n');
             startedStreaming = true;
           }
-          process.stdout.write(chunk);
+          renderer.push(chunk, (formatted) => process.stdout.write(formatted));
         }
       });
 
-      console.log('\n'); // newline after stream finishes
+      renderer.flush((formatted) => process.stdout.write(formatted));
+      console.log(); // newline after stream finishes
 
       // Save to conversation history
       session.messages.push({ role: 'user', content: trimmed });

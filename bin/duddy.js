@@ -3,6 +3,7 @@
 import { loadConfig, getApiKey } from '../src/config.js';
 import { startRepl } from '../src/repl.js';
 import { streamChatCompletion } from '../src/api.js';
+import { createTerminalStreamRenderer } from '../src/formatter.js';
 import chalk from 'chalk';
 import ora from 'ora';
 
@@ -78,6 +79,7 @@ ${chalk.bold('Interactive Commands:')}
       color: 'cyan'
     }).start();
 
+    const renderer = createTerminalStreamRenderer();
     let startedStreaming = false;
 
     try {
@@ -95,9 +97,10 @@ ${chalk.bold('Interactive Commands:')}
             spinner.stop();
             startedStreaming = true;
           }
-          process.stdout.write(chunk);
+          renderer.push(chunk, (formatted) => process.stdout.write(formatted));
         }
       });
+      renderer.flush((formatted) => process.stdout.write(formatted));
       console.log();
     } catch (err) {
       spinner.stop();
