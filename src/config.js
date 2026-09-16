@@ -7,7 +7,7 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 const DEFAULT_CONFIG = {
   apiKey: '',
-  model: 'deepseek/deepseek-r1:free',
+  model: 'openrouter/free',
   systemPrompt: 'You are Duddy, an expert Linux, DevOps, and Full-stack engineering AI companion. Answer concisely, practically, with code or commands when appropriate. Respond in the language used by the user.'
 };
 

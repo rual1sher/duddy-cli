@@ -20,7 +20,7 @@ async function main() {
 
   const session = {
     apiKey,
-    model: config.model || 'deepseek/deepseek-r1:free',
+    model: config.model || 'openrouter/free',
     systemPrompt: config.systemPrompt,
     messages: []
   };
