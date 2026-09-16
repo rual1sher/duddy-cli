@@ -2,6 +2,7 @@ import { select, input, password } from '@inquirer/prompts';
 import chalk from 'chalk';
 import ora from 'ora';
 import { saveConfig } from './config.js';
+import { printBanner } from './banner.js';
 
 export const AVAILABLE_COMMANDS = [
   { cmd: '/model', desc: 'Сменить AI модель (выбор из проверенных или по имени)' },
@@ -194,8 +195,15 @@ export function handleHelpCommand() {
 }
 
 export function handleClearCommand(session) {
+  console.clear();
   session.messages = [];
-  console.log(chalk.dim('✓ История диалога очищена. Контекст начат заново.\n'));
+  printBanner({
+    model: session.model,
+    hasKey: !!session.apiKey,
+    maxTokens: session.maxTokens || 750,
+    temperature: session.temperature ?? 0.4
+  });
+  console.log(chalk.green('✓ Экран и контекст диалога полностью очищены. Начат новый диалог.\n'));
 }
 
 export async function handleLengthCommand(session) {

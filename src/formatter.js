@@ -1,28 +1,30 @@
 import chalk from 'chalk';
 
 /**
- * Creates a streaming line-buffered markdown renderer for terminal output.
+ * Animated terminal renderer with Markdown formatting and smooth typewriter typing.
  */
-export function createTerminalStreamRenderer() {
-  let inCodeBlock = false;
-  let lineBuffer = '';
+export class AnimatedTerminalRenderer {
+  constructor() {
+    this.inCodeBlock = false;
+    this.lineBuffer = '';
+    this.queue = [];
+    this.running = false;
+  }
 
-  function renderLine(line) {
+  renderLine(line) {
     // Code block fences
     if (line.trim().startsWith('```')) {
-      inCodeBlock = !inCodeBlock;
+      this.inCodeBlock = !this.inCodeBlock;
       const lang = line.trim().slice(3).trim();
-      return inCodeBlock
-        ? chalk.dim('  ┌─ [') + chalk.yellow(lang || 'code') + chalk.dim('] ' + '─'.repeat(Math.max(10, 40 - (lang || 'code').length)))
-        : chalk.dim('  └' + '─'.repeat(45));
+      return this.inCodeBlock
+        ? chalk.dim('  ┌─ [') + chalk.yellow(lang || 'code') + chalk.dim('] ' + '─'.repeat(Math.max(8, 38 - (lang || 'code').length)))
+        : chalk.dim('  └' + '─'.repeat(44));
     }
 
-    // Inside code block: indent and colorize
-    if (inCodeBlock) {
+    if (this.inCodeBlock) {
       return chalk.dim('  │ ') + chalk.greenBright(line);
     }
 
-    // Outside code block: format markdown
     return line
       // Headings
       .replace(/^### (.*$)/gim, (_, p1) => chalk.bold.magenta('  ▸ ' + p1))
@@ -40,26 +42,49 @@ export function createTerminalStreamRenderer() {
       .replace(/^(\s*)(\d+\.)\s+/gm, (_, p1, p2) => p1 + '  ' + chalk.bold(p2) + ' ');
   }
 
-  return {
-    push(chunk, onLine) {
-      lineBuffer += chunk;
-      if (lineBuffer.includes('\n')) {
-        const lines = lineBuffer.split('\n');
-        lineBuffer = lines.pop() ?? ''; // keep remainder
-        for (const line of lines) {
-          onLine(renderLine(line) + '\n');
-        }
-      }
-    },
-    flush(onLine) {
-      if (lineBuffer) {
-        onLine(renderLine(lineBuffer) + '\n');
-        lineBuffer = '';
-      }
-      if (inCodeBlock) {
-        onLine(chalk.dim('  └' + '─'.repeat(45)) + '\n');
-        inCodeBlock = false;
+  push(chunk) {
+    this.lineBuffer += chunk;
+    if (this.lineBuffer.includes('\n')) {
+      const lines = this.lineBuffer.split('\n');
+      this.lineBuffer = lines.pop() ?? '';
+      for (const line of lines) {
+        this.enqueue(this.renderLine(line) + '\n');
       }
     }
-  };
+  }
+
+  enqueue(text) {
+    this.queue.push(...text);
+    if (!this.running) {
+      this.process();
+    }
+  }
+
+  async process() {
+    this.running = true;
+    while (this.queue.length > 0) {
+      const char = this.queue.shift();
+      process.stdout.write(char);
+      // Adaptive delay: typing feel when buffer is small, instant when buffer is backed up
+      const delay = this.queue.length > 30 ? 0 : 7;
+      if (delay > 0) {
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+    this.running = false;
+  }
+
+  async flush() {
+    if (this.lineBuffer) {
+      this.enqueue(this.renderLine(this.lineBuffer) + '\n');
+      this.lineBuffer = '';
+    }
+    if (this.inCodeBlock) {
+      this.enqueue(chalk.dim('  └' + '─'.repeat(44)) + '\n');
+      this.inCodeBlock = false;
+    }
+    while (this.running || this.queue.length > 0) {
+      await new Promise(r => setTimeout(r, 10));
+    }
+  }
 }

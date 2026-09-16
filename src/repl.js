@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { printBanner } from './banner.js';
 import { streamChatCompletion } from './api.js';
-import { createTerminalStreamRenderer } from './formatter.js';
+import { AnimatedTerminalRenderer } from './formatter.js';
 import {
   AVAILABLE_COMMANDS,
   handleHelpCommand,
@@ -48,7 +48,12 @@ function askLine(history) {
 
 export async function startRepl(session) {
   console.clear();
-  printBanner(session.model, !!session.apiKey);
+  printBanner({
+    model: session.model,
+    hasKey: !!session.apiKey,
+    maxTokens: session.maxTokens || 750,
+    temperature: session.temperature ?? 0.4
+  });
 
   if (!session.apiKey) {
     console.log(chalk.yellow('⚠️  No OpenRouter API key found!'));
@@ -149,12 +154,14 @@ export async function startRepl(session) {
       { role: 'user', content: trimmed }
     ];
 
+    const startTime = Date.now();
     const spinner = ora({
-      text: chalk.dim(`Thinking (${session.model})...`),
-      color: 'cyan'
+      text: chalk.bold.hex('#00f5d4')('Duddy думает... ') + chalk.dim(`(${session.model})`),
+      color: 'cyan',
+      spinner: 'dots12'
     }).start();
 
-    const renderer = createTerminalStreamRenderer();
+    const renderer = new AnimatedTerminalRenderer();
     let startedStreaming = false;
     let assistantText = '';
 
@@ -168,15 +175,16 @@ export async function startRepl(session) {
         onChunk: (chunk) => {
           if (!startedStreaming) {
             spinner.stop();
-            process.stdout.write(chalk.bold.green('duddy > ') + '\n');
+            process.stdout.write(chalk.dim('\n╭─ ') + chalk.bold.hex('#00f5d4')('✦ Duddy') + chalk.dim(' ─────────────────────────────────────\n'));
             startedStreaming = true;
           }
-          renderer.push(chunk, (formatted) => process.stdout.write(formatted));
+          renderer.push(chunk);
         }
       });
 
-      renderer.flush((formatted) => process.stdout.write(formatted));
-      console.log(); // newline after stream finishes
+      await renderer.flush();
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(chalk.dim('╰─ ') + chalk.hex('#06d6a0')('✔ Ответ готов') + chalk.dim(` · ${elapsed}s\n`));
 
       // Save to conversation history
       session.messages.push({ role: 'user', content: trimmed });

@@ -3,7 +3,7 @@
 import { loadConfig, getApiKey } from '../src/config.js';
 import { startRepl } from '../src/repl.js';
 import { streamChatCompletion } from '../src/api.js';
-import { createTerminalStreamRenderer } from '../src/formatter.js';
+import { AnimatedTerminalRenderer } from '../src/formatter.js';
 import chalk from 'chalk';
 import ora from 'ora';
 
@@ -74,12 +74,14 @@ ${chalk.bold('Interactive Commands:')}
       process.exit(1);
     }
 
+    const startTime = Date.now();
     const spinner = ora({
-      text: chalk.dim(`Thinking (${session.model})...`),
-      color: 'cyan'
+      text: chalk.bold.hex('#00f5d4')('Duddy думает... ') + chalk.dim(`(${session.model})`),
+      color: 'cyan',
+      spinner: 'dots12'
     }).start();
 
-    const renderer = createTerminalStreamRenderer();
+    const renderer = new AnimatedTerminalRenderer();
     let startedStreaming = false;
 
     try {
@@ -95,13 +97,15 @@ ${chalk.bold('Interactive Commands:')}
         onChunk: (chunk) => {
           if (!startedStreaming) {
             spinner.stop();
+            process.stdout.write(chalk.dim('\n╭─ ') + chalk.bold.hex('#00f5d4')('✦ Duddy') + chalk.dim(' ─────────────────────────────────────\n'));
             startedStreaming = true;
           }
-          renderer.push(chunk, (formatted) => process.stdout.write(formatted));
+          renderer.push(chunk);
         }
       });
-      renderer.flush((formatted) => process.stdout.write(formatted));
-      console.log();
+      await renderer.flush();
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(chalk.dim('╰─ ') + chalk.hex('#06d6a0')('✔ Ответ готов') + chalk.dim(` · ${elapsed}s\n`));
     } catch (err) {
       spinner.stop();
       console.error(chalk.red(`\nError: ${err.message}`));
