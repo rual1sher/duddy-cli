@@ -4,10 +4,13 @@ import ora from 'ora';
 import { printBanner } from './banner.js';
 import { streamChatCompletion } from './api.js';
 import { AnimatedTerminalRenderer } from './formatter.js';
+import { extractCodeBlocks } from './clipboard.js';
 import {
   AVAILABLE_COMMANDS,
   handleHelpCommand,
   handleModelCommand,
+  handleCopyCommand,
+  handleSaveCommand,
   handleLengthCommand,
   handleLoginCommand,
   handleClearCommand,
@@ -106,6 +109,13 @@ export async function startRepl(session) {
         case 'm':
           await handleModelCommand(args, session);
           break;
+        case 'copy':
+        case 'cp':
+          handleCopyCommand(session);
+          break;
+        case 'save':
+          await handleSaveCommand(args, session);
+          break;
         case 'length':
         case 'len':
         case 'tokens':
@@ -184,7 +194,16 @@ export async function startRepl(session) {
 
       await renderer.flush();
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(chalk.hex('#334155')('╰─ ') + chalk.hex('#10b981')('✔ Готово') + chalk.hex('#64748b')(` · ${elapsed}s\n`));
+
+      // Extract raw code blocks for instant copying / saving
+      const codeBlocks = extractCodeBlocks(assistantText);
+      if (codeBlocks.length > 0) {
+        session.lastCode = codeBlocks.join('\n\n');
+        console.log(chalk.hex('#334155')('╰─ ') + chalk.hex('#10b981')('✔ Готово') + chalk.hex('#64748b')(` · ${elapsed}s  `) + chalk.bold.hex('#38bdf8')('[Скопировать: /copy | Сохранить: /save]') + '\n');
+      } else {
+        session.lastCode = assistantText;
+        console.log(chalk.hex('#334155')('╰─ ') + chalk.hex('#10b981')('✔ Готово') + chalk.hex('#64748b')(` · ${elapsed}s\n`));
+      }
 
       // Save to conversation history
       session.messages.push({ role: 'user', content: trimmed });

@@ -3,12 +3,15 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { saveConfig } from './config.js';
 import { printBanner } from './banner.js';
+import { copyToClipboard, saveCodeToFile } from './clipboard.js';
 
 export const AVAILABLE_COMMANDS = [
   { cmd: '/model', desc: 'Сменить AI модель (выбор из проверенных или по имени)' },
+  { cmd: '/copy', desc: 'Скопировать последний код в буфер обмена (wl-copy)' },
+  { cmd: '/save [файл]', desc: 'Сохранить код в файл (например: /save index.html)' },
   { cmd: '/length', desc: 'Длина ответа (кратко / оптимально / подробно)' },
   { cmd: '/login', desc: 'Настроить API ключ OpenRouter' },
-  { cmd: '/clear', desc: 'Очистить историю диалога (контекст)' },
+  { cmd: '/clear', desc: 'Очистить историю диалога и экран' },
   { cmd: '/system', desc: 'Сменить роль / характер ассистента' },
   { cmd: '/usage', desc: 'Показать статистику текущей сессии' },
   { cmd: '/help', desc: 'Показать список всех команд' },
@@ -276,5 +279,47 @@ export async function handleSystemCommand(session) {
     session.systemPrompt = choice;
     saveConfig({ systemPrompt: choice });
     console.log(chalk.green('✓ Роль ассистента успешно изменена!\n'));
+  }
+}
+
+export function handleCopyCommand(session) {
+  const codeToCopy = session.lastCode || (session.messages.length > 0 ? session.messages[session.messages.length - 1]?.content : '');
+  if (!codeToCopy) {
+    console.log(chalk.yellow('! Пока нет кода для копирования. Сначала сгенерируй код!\n'));
+    return;
+  }
+
+  const ok = copyToClipboard(codeToCopy);
+  if (ok) {
+    console.log(chalk.green('✓ Код успешно скопирован в буфер обмена! Вставляй через Ctrl+V.\n'));
+  } else {
+    console.log(chalk.red('✗ Не удалось скопировать (убедись, что установлен wl-copy или xclip).\n'));
+  }
+}
+
+export async function handleSaveCommand(args, session) {
+  const codeToSave = session.lastCode || (session.messages.length > 0 ? session.messages[session.messages.length - 1]?.content : '');
+  if (!codeToSave) {
+    console.log(chalk.yellow('! Пока нет кода для сохранения. Сначала сгенерируй код!\n'));
+    return;
+  }
+
+  let fileName = args ? args.trim() : '';
+  if (!fileName) {
+    fileName = await input({
+      message: 'Введите имя файла для сохранения (например, index.html):'
+    });
+  }
+
+  if (!fileName.trim()) {
+    console.log(chalk.yellow('! Сохранение отменено, имя файла не указано.\n'));
+    return;
+  }
+
+  const ok = saveCodeToFile(fileName.trim(), codeToSave);
+  if (ok) {
+    console.log(chalk.green(`✓ Код успешно сохранен в файл: ${chalk.bold(fileName.trim())}\n`));
+  } else {
+    console.log(chalk.red(`✗ Не удалось сохранить файл: ${fileName.trim()}\n`));
   }
 }

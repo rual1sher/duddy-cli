@@ -39,6 +39,7 @@ export async function streamChatCompletion({
 
   let fullResponse = '';
   let inThinkBlock = false;
+  let inThinkingProcess = false;
 
   for await (const chunk of stream) {
     const delta = chunk.choices[0]?.delta;
@@ -51,6 +52,20 @@ export async function streamChatCompletion({
 
     if (delta.content) {
       let content = delta.content;
+
+      // Suppress plain-text thinking process preamble (e.g. from Nemotron)
+      if (!fullResponse && /Here\x27s a thinking process:/i.test(content)) {
+        inThinkingProcess = true;
+      }
+
+      if (inThinkingProcess) {
+        if (/\n\n(```|<!|[А-Яа-я#]|Here is|Вот)/.test(content)) {
+          inThinkingProcess = false;
+          content = content.replace(/^[\s\S]*?\n\n(?=```|<!|[А-Яа-я#]|Here is|Вот)/, '');
+        } else {
+          continue;
+        }
+      }
 
       // Handle <think> ... </think> tags if model emits them in content
       if (content.includes('<think>')) {

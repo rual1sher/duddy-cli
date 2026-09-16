@@ -54,10 +54,10 @@ export function printBanner({ model = 'openrouter/free', hasKey = false, maxToke
   console.log(borderMid);
   console.log(padLine(
     chalk.hex('#38bdf8')('/model') + chalk.hex('#475569')(' · ') +
-    chalk.hex('#38bdf8')('/length') + chalk.hex('#475569')(' · ') +
+    chalk.hex('#38bdf8')('/copy') + chalk.hex('#475569')(' · ') +
+    chalk.hex('#38bdf8')('/save') + chalk.hex('#475569')(' · ') +
     chalk.hex('#38bdf8')('/clear') + chalk.hex('#475569')(' · ') +
-    chalk.hex('#38bdf8')('/system') + chalk.hex('#475569')(' · ') +
-    chalk.hex('#38bdf8')('/usage') + chalk.hex('#475569')(' · ') +
+    chalk.hex('#38bdf8')('/length') + chalk.hex('#475569')(' · ') +
     chalk.hex('#38bdf8')('/exit'),
     width
   ));

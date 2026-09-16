@@ -17,12 +17,13 @@ export class AnimatedTerminalRenderer {
       this.inCodeBlock = !this.inCodeBlock;
       const lang = line.trim().slice(3).trim();
       return this.inCodeBlock
-        ? chalk.dim('  ┌─ [') + chalk.yellow(lang || 'code') + chalk.dim('] ' + '─'.repeat(Math.max(8, 38 - (lang || 'code').length)))
-        : chalk.dim('  └' + '─'.repeat(44));
+        ? chalk.hex('#334155')('── [') + chalk.bold.hex('#38bdf8')(lang || 'code') + chalk.hex('#334155')('] ' + '─'.repeat(Math.max(10, 48 - (lang || 'code').length)))
+        : chalk.hex('#334155')('─'.repeat(54));
     }
 
     if (this.inCodeBlock) {
-      return chalk.dim('  │ ') + chalk.greenBright(line);
+      // Pure code: NO '│' or prefix characters so copying is 100% clean
+      return chalk.greenBright(line);
     }
 
     return line
@@ -80,7 +81,7 @@ export class AnimatedTerminalRenderer {
       this.lineBuffer = '';
     }
     if (this.inCodeBlock) {
-      this.enqueue(chalk.dim('  └' + '─'.repeat(44)) + '\n');
+      this.enqueue(chalk.hex('#334155')('─'.repeat(54)) + '\n');
       this.inCodeBlock = false;
     }
     while (this.running || this.queue.length > 0) {
