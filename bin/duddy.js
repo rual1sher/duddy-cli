@@ -76,7 +76,7 @@ ${chalk.bold('Interactive Commands:')}
 
     const startTime = Date.now();
     const spinner = ora({
-      text: chalk.bold.hex('#00f5d4')('Duddy думает... ') + chalk.dim(`(${session.model})`),
+      text: chalk.bold.hex('#38bdf8')('Duddy думает... ') + chalk.hex('#64748b')(`(${session.model})`),
       color: 'cyan',
       spinner: 'dots12'
     }).start();
@@ -97,7 +97,7 @@ ${chalk.bold('Interactive Commands:')}
         onChunk: (chunk) => {
           if (!startedStreaming) {
             spinner.stop();
-            process.stdout.write(chalk.dim('\n╭─ ') + chalk.bold.hex('#00f5d4')('✦ Duddy') + chalk.dim(' ─────────────────────────────────────\n'));
+            process.stdout.write(chalk.hex('#334155')('\n╭─ ') + chalk.bold.hex('#38bdf8')('✦ Duddy') + chalk.hex('#475569')(` [${session.model}] `) + chalk.hex('#334155')('─'.repeat(26)) + '\n');
             startedStreaming = true;
           }
           renderer.push(chunk);
@@ -105,7 +105,7 @@ ${chalk.bold('Interactive Commands:')}
       });
       await renderer.flush();
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(chalk.dim('╰─ ') + chalk.hex('#06d6a0')('✔ Ответ готов') + chalk.dim(` · ${elapsed}s\n`));
+      console.log(chalk.hex('#334155')('╰─ ') + chalk.hex('#10b981')('✔ Готово') + chalk.hex('#64748b')(` · ${elapsed}s\n`));
     } catch (err) {
       spinner.stop();
       console.error(chalk.red(`\nError: ${err.message}`));
