@@ -21,6 +21,8 @@ async function main() {
   const session = {
     apiKey,
     model: config.model || 'openrouter/free',
+    maxTokens: config.maxTokens || 750,
+    temperature: config.temperature ?? 0.3,
     systemPrompt: config.systemPrompt,
     messages: []
   };
@@ -86,6 +88,8 @@ ${chalk.bold('Interactive Commands:')}
           { role: 'system', content: session.systemPrompt },
           { role: 'user', content: combinedContent }
         ],
+        maxTokens: session.maxTokens,
+        temperature: session.temperature,
         onChunk: (chunk) => {
           if (!startedStreaming) {
             spinner.stop();

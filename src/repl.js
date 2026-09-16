@@ -7,6 +7,7 @@ import {
   AVAILABLE_COMMANDS,
   handleHelpCommand,
   handleModelCommand,
+  handleLengthCommand,
   handleLoginCommand,
   handleClearCommand,
   handleUsageCommand,
@@ -99,6 +100,11 @@ export async function startRepl(session) {
         case 'm':
           await handleModelCommand(args, session);
           break;
+        case 'length':
+        case 'len':
+        case 'tokens':
+          await handleLengthCommand(session);
+          break;
         case 'login':
         case 'auth':
         case 'key':
@@ -155,6 +161,8 @@ export async function startRepl(session) {
         apiKey: session.apiKey,
         model: session.model,
         messages: messagesToSend,
+        maxTokens: session.maxTokens || 750,
+        temperature: session.temperature ?? 0.3,
         onChunk: (chunk) => {
           if (!startedStreaming) {
             spinner.stop();

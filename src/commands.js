@@ -5,6 +5,7 @@ import { saveConfig } from './config.js';
 
 export const AVAILABLE_COMMANDS = [
   { cmd: '/model', desc: 'Сменить AI модель (выбор из проверенных или по имени)' },
+  { cmd: '/length', desc: 'Длина ответа (кратко / оптимально / подробно)' },
   { cmd: '/login', desc: 'Настроить API ключ OpenRouter' },
   { cmd: '/clear', desc: 'Очистить историю диалога (контекст)' },
   { cmd: '/system', desc: 'Сменить роль / характер ассистента' },
@@ -197,10 +198,35 @@ export function handleClearCommand(session) {
   console.log(chalk.dim('✓ История диалога очищена. Контекст начат заново.\n'));
 }
 
+export async function handleLengthCommand(session) {
+  const choice = await select({
+    message: 'Настройка длины и подробности ответов:',
+    choices: [
+      {
+        name: `⚡ ${chalk.bold('Краткий')} (350 токенов) — только команды и суть, без лишних слов`,
+        value: 350
+      },
+      {
+        name: `🎯 ${chalk.bold('Оптимальный')} (750 токенов, по умолчанию) — точный ответ + важные флаги`,
+        value: 750
+      },
+      {
+        name: `📚 ${chalk.bold('Подробный')} (1800 токенов) — развернутые примеры, разборы и альтернативы`,
+        value: 1800
+      }
+    ]
+  });
+
+  session.maxTokens = choice;
+  saveConfig({ maxTokens: choice });
+  console.log(chalk.green(`✓ Лимит ответа установлен на: ${chalk.bold(choice)} токенов\n`));
+}
+
 export function handleUsageCommand(session) {
   const turns = session.messages.filter(m => m.role === 'user').length;
   console.log(chalk.cyan('\n📊 Статистика текущей сессии:'));
   console.log(`  Активная модель: ${chalk.greenBright(session.model)}`);
+  console.log(`  Лимит токенов:   ${chalk.yellow(session.maxTokens || 750)} токенов`);
   console.log(`  Сообщений в чате: ${chalk.bold(turns)}`);
   console.log(`  Размер истории:   ${chalk.bold(session.messages.length)} реплик`);
   console.log();
@@ -211,19 +237,19 @@ export async function handleSystemCommand(session) {
     message: 'Выберите роль / характер ассистента:',
     choices: [
       {
-        name: 'DevOps & Full-Stack эксперт (По умолчанию) — команды, конфиги, решение проблем',
-        value: 'You are Duddy, an expert Linux, DevOps, and Full-stack engineering AI companion. Answer concisely, practically, with code or commands when appropriate. Respond in the language used by the user.'
+        name: '🚀 Лаконичный DevOps & Dev (По умолчанию) — сразу суть и команды, 1-3 строки пояснений',
+        value: 'You are Duddy, a high-efficiency Linux, DevOps, and Full-Stack CLI assistant.\nCRITICAL INSTRUCTIONS:\n- Directly provide the exact command, code, or solution first.\n- Zero conversational fluff (do NOT say "Sure!", "Here is how to do it", "In this answer...").\n- Provide at most 1-3 brief bullet points or sentences explaining the flags/mechanism.\n- Quality and precision over length: do not write excessive tutorials or unwanted tables.\n- Respond in the language used by the user.'
       },
       {
-        name: 'Старший Ментор — подробные разборы архитектуры, лучшие практики',
+        name: '⚡ Ультра-краткий помощник терминала — только bash-команда и флаги',
+        value: 'You are Duddy, an ultra-concise terminal command generator. Output strictly the executable command with minimal comments. Zero explanations unless critical for system safety.'
+      },
+      {
+        name: '📚 Старший Ментор — подробные архитектурные разборы, лучшие практики',
         value: 'You are Duddy, a Senior Full-Stack and DevOps mentor. Provide in-depth explanations, architectural considerations, and clean, modern code examples.'
       },
       {
-        name: 'Краткий помощник терминала — только команды и флаги, минимум слов',
-        value: 'You are Duddy, a quick terminal assistant. Provide strictly commands, flags, and 1-2 sentence explanations. Zero fluff.'
-      },
-      {
-        name: 'Свой системный промпт...',
+        name: '✏️ Свой системный промпт...',
         value: '__custom__'
       }
     ]

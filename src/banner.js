@@ -24,6 +24,7 @@ export function printBanner(model, hasKey) {
   console.log(
     chalk.dim('  Commands: ') +
     chalk.yellow('/model') + chalk.dim(' · ') +
+    chalk.yellow('/length') + chalk.dim(' · ') +
     chalk.yellow('/login') + chalk.dim(' · ') +
     chalk.yellow('/clear') + chalk.dim(' · ') +
     chalk.yellow('/usage') + chalk.dim(' · ') +

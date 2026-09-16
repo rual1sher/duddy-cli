@@ -13,10 +13,16 @@ export function createClient(apiKey) {
 }
 
 /**
- * Stream a chat completion from OpenRouter.
- * Calls onChunk(text, isThinking) as tokens arrive.
+ * Stream a chat completion from OpenRouter with conciseness filters.
  */
-export async function streamChatCompletion({ apiKey, model, messages, onChunk }) {
+export async function streamChatCompletion({
+  apiKey,
+  model,
+  messages,
+  maxTokens = 750,
+  temperature = 0.3,
+  onChunk
+}) {
   if (!apiKey) {
     throw new Error('API key is not configured. Run /login to enter your OpenRouter key.');
   }
@@ -26,33 +32,45 @@ export async function streamChatCompletion({ apiKey, model, messages, onChunk })
   const stream = await client.chat.completions.create({
     model: model,
     messages: messages,
+    max_tokens: maxTokens,
+    temperature: temperature,
     stream: true,
   });
 
   let fullResponse = '';
-  let isThinking = false;
+  let inThinkBlock = false;
 
   for await (const chunk of stream) {
     const delta = chunk.choices[0]?.delta;
     if (!delta) continue;
 
-    // Handle OpenRouter reasoning delta if available (DeepSeek R1 etc.)
+    // Suppress separate internal monologue / reasoning stream
     if (delta.reasoning) {
-      if (!isThinking) {
-        isThinking = true;
-        onChunk(chalk.dim('\n💭 Thinking...\n'), false);
-      }
-      onChunk(chalk.dim.italic(delta.reasoning), true);
       continue;
     }
 
     if (delta.content) {
-      if (isThinking) {
-        isThinking = false;
-        onChunk(chalk.dim('\n\n💡 Answer:\n'), false);
+      let content = delta.content;
+
+      // Handle <think> ... </think> tags if model emits them in content
+      if (content.includes('<think>')) {
+        inThinkBlock = true;
+        content = content.replace(/<think>[\s\S]*$/, '');
       }
-      fullResponse += delta.content;
-      onChunk(delta.content, false);
+
+      if (inThinkBlock) {
+        if (content.includes('</think>')) {
+          inThinkBlock = false;
+          content = content.replace(/^[\s\S]*<\/think>/, '');
+        } else {
+          continue;
+        }
+      }
+
+      if (!content) continue;
+
+      fullResponse += content;
+      onChunk(content);
     }
   }
 
