@@ -200,8 +200,17 @@ export async function loginViaBrowser() {
       spinner.start();
     });
 
+    const onKeypress = (str, key) => {
+      if (key && (key.name === 'escape' || (key.sequence === '\u001b' && !key.meta && !key.ctrl && !key.shift))) {
+        console.log(chalk.dim('\n(Авторизация отменена)\n'));
+        cleanup();
+        resolve(null);
+      }
+    };
+    process.stdin.on('keypress', onKeypress);
+
     const spinner = ora({
-      text: chalk.bold.hex('#38bdf8')('Ожидание подтверждения входа в браузере... ') + chalk.dim('(Ctrl+C для отмены)'),
+      text: chalk.bold.hex('#38bdf8')('Ожидание подтверждения входа в браузере... ') + chalk.dim('(Esc или Ctrl+C для отмены)'),
       color: 'cyan'
     });
 
@@ -218,6 +227,7 @@ export async function loginViaBrowser() {
     const cleanup = () => {
       if (resolved) return;
       resolved = true;
+      process.stdin.removeListener('keypress', onKeypress);
       clearTimeout(timeout);
       spinner.stop();
       try {

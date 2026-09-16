@@ -32,7 +32,8 @@ function askLine(history) {
       input: process.stdin,
       output: process.stdout,
       completer,
-      history
+      history,
+      escapeCodeTimeout: 50
     });
 
     rl.question(chalk.bold.hex('#38bdf8')('> '), (answer) => {

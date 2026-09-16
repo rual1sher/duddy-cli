@@ -1,4 +1,4 @@
-import { select, input, password } from '@inquirer/prompts';
+import { select, input, password } from './prompts.js';
 import chalk from 'chalk';
 import ora from 'ora';
 import { saveConfig, DEFAULT_SYSTEM_PROMPT } from './config.js';
@@ -109,18 +109,31 @@ export async function handleModelCommand(args, session) {
     choices: categoryChoices
   });
 
+  if (!action) {
+    console.log(chalk.dim('(Отменено)\n'));
+    return;
+  }
+
   if (action.startsWith('cat_')) {
     const catKey = action.replace('cat_', '');
     await showCategoryModels(catKey, session);
   } else if (action === '__all__') {
     await showAllCurated(session);
   } else if (action === '__search__') {
-    const query = await input({ message: 'Введите ключевое слово для поиска (например, gemini, claude, qwen):' });
+    const query = await input({ message: `Введите ключевое слово для поиска (например, gemini, claude, qwen) ${chalk.dim('(Esc — отмена)')}:` });
+    if (query === null) {
+      console.log(chalk.dim('(Отменено)\n'));
+      return;
+    }
     if (query.trim()) {
       await searchAndSelectModel(query.trim(), session);
     }
   } else if (action === '__custom__') {
-    const customName = await input({ message: 'Введите точный ID модели из OpenRouter:' });
+    const customName = await input({ message: `Введите точный ID модели из OpenRouter ${chalk.dim('(Esc — отмена)')}:` });
+    if (customName === null) {
+      console.log(chalk.dim('(Отменено)\n'));
+      return;
+    }
     if (customName.trim()) {
       session.model = customName.trim();
       saveConfig({ model: session.model });
@@ -149,6 +162,11 @@ async function showCategoryModels(catKey, session) {
     message: `${cat.title}:`,
     choices
   });
+
+  if (!chosen) {
+    console.log(chalk.dim('(Отменено)\n'));
+    return;
+  }
 
   if (chosen === '__back__') {
     await handleModelCommand('', session);
@@ -183,6 +201,11 @@ async function showAllCurated(session) {
     message: 'Выберите модель:',
     choices
   });
+
+  if (!chosen) {
+    console.log(chalk.dim('(Отменено)\n'));
+    return;
+  }
 
   if (chosen === '__back__') {
     await handleModelCommand('', session);
@@ -219,6 +242,11 @@ async function searchAndSelectModel(query, session) {
     message: `Результаты поиска (${results.length}):`,
     choices
   });
+
+  if (!chosen) {
+    console.log(chalk.dim('(Отменено)\n'));
+    return;
+  }
 
   if (chosen === '__back__') {
     await handleModelCommand('', session);
@@ -266,6 +294,11 @@ export async function handleLoginCommand(session, args = '') {
     ]
   });
 
+  if (!method) {
+    console.log(chalk.dim('(Отменено)\n'));
+    return;
+  }
+
   if (method === 'browser') {
     const key = await loginViaBrowser();
     if (key) {
@@ -278,11 +311,16 @@ export async function handleLoginCommand(session, args = '') {
 
   console.log(chalk.dim('Получить ключ можно на: https://openrouter.ai/keys'));
   const key = await password({
-    message: 'Введите API ключ OpenRouter (sk-or-...):',
+    message: `Введите API ключ OpenRouter (sk-or-...) ${chalk.dim('(Esc — отмена)')}:`,
     mask: '*'
   });
 
-  if (key && key.trim()) {
+  if (key === null) {
+    console.log(chalk.dim('(Отменено)\n'));
+    return;
+  }
+
+  if (key.trim()) {
     const trimmed = key.trim();
     saveConfig({ apiKey: trimmed });
     session.apiKey = trimmed;
@@ -343,10 +381,19 @@ export async function handleSystemCommand(session) {
     ]
   });
 
+  if (!choice) {
+    console.log(chalk.dim('(Отменено)\n'));
+    return;
+  }
+
   if (choice === '__custom__') {
     const customPrompt = await input({
-      message: 'Введите свой системный промпт:'
+      message: `Введите свой системный промпт ${chalk.dim('(Esc — отмена)')}:`
     });
+    if (customPrompt === null) {
+      console.log(chalk.dim('(Отменено)\n'));
+      return;
+    }
     if (customPrompt.trim()) {
       session.systemPrompt = customPrompt.trim();
       saveConfig({ systemPrompt: session.systemPrompt });
@@ -384,8 +431,12 @@ export async function handleSaveCommand(args, session) {
   let fileName = args ? args.trim() : '';
   if (!fileName) {
     fileName = await input({
-      message: 'Введите имя файла для сохранения (например, index.html):'
+      message: `Введите имя файла для сохранения (например, index.html) ${chalk.dim('(Esc — отмена)')}:`
     });
+    if (fileName === null) {
+      console.log(chalk.dim('(Отменено)\n'));
+      return;
+    }
   }
 
   if (!fileName.trim()) {
