@@ -117,7 +117,7 @@ export async function startRepl(session) {
         case 'login':
         case 'auth':
         case 'key':
-          await handleLoginCommand(session);
+          await handleLoginCommand(session, args);
           break;
         case 'clear':
         case 'cls':

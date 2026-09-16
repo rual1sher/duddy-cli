@@ -5,12 +5,13 @@ import { saveConfig, DEFAULT_SYSTEM_PROMPT } from './config.js';
 import { printBanner } from './banner.js';
 import { copyToClipboard, saveCodeToFile } from './clipboard.js';
 import { MODEL_CATEGORIES, getAllCuratedModels, searchOpenRouterModels } from './models.js';
+import { loginViaBrowser } from './auth.js';
 
 export const AVAILABLE_COMMANDS = [
   { cmd: '/model', desc: 'Сменить AI модель (Gemini, GPT, Claude, Llama, Free...)' },
   { cmd: '/copy', desc: 'Скопировать последний код в буфер обмена (wl-copy)' },
   { cmd: '/save [файл]', desc: 'Сохранить код в файл (например: /save index.html)' },
-  { cmd: '/login', desc: 'Настроить API ключ OpenRouter' },
+  { cmd: '/login', desc: 'Авторизация в OpenRouter (через браузер OAuth или ключ)' },
   { cmd: '/clear', desc: 'Очистить историю диалога и экран' },
   { cmd: '/system', desc: 'Сменить роль / характер ассистента' },
   { cmd: '/usage', desc: 'Показать статистику текущей сессии' },
@@ -229,7 +230,52 @@ async function searchAndSelectModel(query, session) {
   console.log(chalk.green(`✓ Модель переключена на: ${chalk.bold(chosen)}\n`));
 }
 
-export async function handleLoginCommand(session) {
+export async function handleLoginCommand(session, args = '') {
+  const trimmedArgs = (args || '').trim();
+
+  if (trimmedArgs.toLowerCase() === 'browser' || trimmedArgs.toLowerCase() === 'web') {
+    const key = await loginViaBrowser();
+    if (key) {
+      saveConfig({ apiKey: key });
+      session.apiKey = key;
+      console.log(chalk.green('✓ Ключ успешно получен и сохранен в ~/.config/duddy/config.json\n'));
+    }
+    return;
+  }
+
+  if (trimmedArgs.startsWith('sk-or-')) {
+    saveConfig({ apiKey: trimmedArgs });
+    session.apiKey = trimmedArgs;
+    console.log(chalk.green('✓ Ключ успешно сохранен в ~/.config/duddy/config.json\n'));
+    return;
+  }
+
+  const method = await select({
+    message: 'Выберите способ авторизации в OpenRouter:',
+    choices: [
+      {
+        name: `🌐 ${chalk.bold.hex('#38bdf8')('Войти через браузер')} ${chalk.green('(как в agy / OAuth PKCE)')}`,
+        value: 'browser',
+        description: 'Откроет страницу OpenRouter в браузере и автоматически свяжет аккаунт'
+      },
+      {
+        name: `✏️  ${chalk.dim('Вставить API ключ вручную (sk-or-...)')}`,
+        value: 'manual',
+        description: 'Ввести или скопировать существующий ключ из openrouter.ai/keys'
+      }
+    ]
+  });
+
+  if (method === 'browser') {
+    const key = await loginViaBrowser();
+    if (key) {
+      saveConfig({ apiKey: key });
+      session.apiKey = key;
+      console.log(chalk.green('✓ Успешный вход! Ключ OpenRouter сохранен в ~/.config/duddy/config.json\n'));
+    }
+    return;
+  }
+
   console.log(chalk.dim('Получить ключ можно на: https://openrouter.ai/keys'));
   const key = await password({
     message: 'Введите API ключ OpenRouter (sk-or-...):',
