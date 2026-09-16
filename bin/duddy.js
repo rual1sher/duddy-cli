@@ -22,8 +22,7 @@ async function main() {
   const session = {
     apiKey,
     model: config.model || 'openrouter/free',
-    maxTokens: config.maxTokens || 750,
-    temperature: config.temperature ?? 0.3,
+    temperature: config.temperature ?? 0.4,
     systemPrompt: config.systemPrompt,
     messages: []
   };
@@ -41,18 +40,20 @@ ${chalk.bold('Usage:')}
   ${chalk.green('cat error.log | duddy "explain"')} Analyze piped input
 
 ${chalk.bold('Interactive Commands:')}
-  ${chalk.yellow('/model')}   Switch AI models (DeepSeek R1, Llama 3.3, Qwen Coder, etc.)
+  ${chalk.yellow('/model')}   Switch AI models (Gemini, GPT, Claude, Llama, Free...)
+  ${chalk.yellow('/copy')}    Copy last generated code directly to clipboard (wl-copy)
+  ${chalk.yellow('/save')}    Save last code to a file (e.g. /save index.html)
   ${chalk.yellow('/login')}   Configure OpenRouter API Key
   ${chalk.yellow('/clear')}   Clear conversation context
   ${chalk.yellow('/system')}  Change AI personality / prompt
-  ${chalk.yellow('/usage')}   Show conversation turn counts
+  ${chalk.yellow('/usage')}   Show session stats
   ${chalk.yellow('/exit')}    Quit session
 `);
     process.exit(0);
   }
 
   if (args.includes('--version') || args.includes('-v')) {
-    console.log('duddy v1.0.0');
+    console.log('duddy v1.3.0');
     process.exit(0);
   }
 
@@ -92,7 +93,6 @@ ${chalk.bold('Interactive Commands:')}
           { role: 'system', content: session.systemPrompt },
           { role: 'user', content: combinedContent }
         ],
-        maxTokens: session.maxTokens,
         temperature: session.temperature,
         onChunk: (chunk) => {
           if (!startedStreaming) {

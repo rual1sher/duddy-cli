@@ -19,8 +19,8 @@ export async function streamChatCompletion({
   apiKey,
   model,
   messages,
-  maxTokens = 750,
-  temperature = 0.3,
+  maxTokens,
+  temperature = 0.4,
   onChunk
 }) {
   if (!apiKey) {
@@ -29,13 +29,17 @@ export async function streamChatCompletion({
 
   const client = createClient(apiKey);
 
-  const stream = await client.chat.completions.create({
+  const requestPayload = {
     model: model,
     messages: messages,
-    max_tokens: maxTokens,
     temperature: temperature,
     stream: true,
-  });
+  };
+  if (maxTokens) {
+    requestPayload.max_tokens = maxTokens;
+  }
+
+  const stream = await client.chat.completions.create(requestPayload);
 
   let fullResponse = '';
   let inThinkBlock = false;

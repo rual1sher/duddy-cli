@@ -10,7 +10,7 @@ function padLine(content, width) {
   return chalk.hex('#334155')('│') + '  ' + content + ' '.repeat(pad) + '  ' + chalk.hex('#334155')('│');
 }
 
-export function printBanner({ model = 'openrouter/free', hasKey = false, maxTokens = 750, temperature = 0.4 } = {}) {
+export function printBanner({ model = 'openrouter/free', hasKey = false, temperature = 0.4 } = {}) {
   const width = 64;
   const borderTop = chalk.hex('#334155')('╭' + '─'.repeat(width + 4) + '╮');
   const borderMid = chalk.hex('#334155')('├' + '─'.repeat(width + 4) + '┤');
@@ -27,7 +27,7 @@ export function printBanner({ model = 'openrouter/free', hasKey = false, maxToke
   console.log();
   console.log(borderTop);
   console.log(padLine(l1('██████╗ ██╗   ██╗██████╗ ██████╗ ██╗   ██╗'), width));
-  console.log(padLine(l2('██╔══██╗██║   ██║██╔══██╗██╔══██╗╚██╗ ██╔╝') + '  ' + chalk.bold.hex('#38bdf8')('DUDDY AI') + chalk.dim(' v1.2.0'), width));
+  console.log(padLine(l2('██╔══██╗██║   ██║██╔══██╗██╔══██╗╚██╗ ██╔╝') + '  ' + chalk.bold.hex('#38bdf8')('DUDDY AI') + chalk.dim(' v1.3.0'), width));
   console.log(padLine(l3('██║  ██║██║   ██║██║  ██║██║  ██║ ╚████╔╝ ') + '  ' + chalk.hex('#94a3b8')('Terminal AI Companion'), width));
   console.log(padLine(l4('██║  ██║██║   ██║██║  ██║██║  ██║  ╚██╔╝  ') + '  ' + chalk.hex('#64748b')('OpenRouter Engine'), width));
   console.log(padLine(l5('██████╔╝╚██████╔╝██████╔╝██████╔╝   ██║   '), width));
@@ -45,9 +45,9 @@ export function printBanner({ model = 'openrouter/free', hasKey = false, maxToke
   ));
 
   console.log(padLine(
-    chalk.hex('#64748b')('Limit: ') + chalk.hex('#cbd5e1')(maxTokens + ' tokens') + chalk.hex('#475569')(' · ') +
     chalk.hex('#64748b')('Temp: ') + chalk.hex('#cbd5e1')(temperature) + chalk.hex('#475569')(' · ') +
-    chalk.hex('#64748b')('Нажми ') + chalk.hex('#38bdf8')('<Tab>') + chalk.hex('#64748b')(' на ') + chalk.hex('#38bdf8')('/') + chalk.hex('#64748b')(' для команд'),
+    chalk.hex('#64748b')('Команды: ') + chalk.bold.hex('#38bdf8')('/help') + chalk.hex('#475569')(' · ') +
+    chalk.hex('#64748b')('Автодополнение: ') + chalk.bold.hex('#38bdf8')('<Tab>'),
     width
   ));
 
@@ -57,7 +57,7 @@ export function printBanner({ model = 'openrouter/free', hasKey = false, maxToke
     chalk.hex('#38bdf8')('/copy') + chalk.hex('#475569')(' · ') +
     chalk.hex('#38bdf8')('/save') + chalk.hex('#475569')(' · ') +
     chalk.hex('#38bdf8')('/clear') + chalk.hex('#475569')(' · ') +
-    chalk.hex('#38bdf8')('/length') + chalk.hex('#475569')(' · ') +
+    chalk.hex('#38bdf8')('/system') + chalk.hex('#475569')(' · ') +
     chalk.hex('#38bdf8')('/exit'),
     width
   ));

@@ -11,7 +11,6 @@ import {
   handleModelCommand,
   handleCopyCommand,
   handleSaveCommand,
-  handleLengthCommand,
   handleLoginCommand,
   handleClearCommand,
   handleUsageCommand,
@@ -54,7 +53,6 @@ export async function startRepl(session) {
   printBanner({
     model: session.model,
     hasKey: !!session.apiKey,
-    maxTokens: session.maxTokens || 750,
     temperature: session.temperature ?? 0.4
   });
 
@@ -116,11 +114,6 @@ export async function startRepl(session) {
         case 'save':
           await handleSaveCommand(args, session);
           break;
-        case 'length':
-        case 'len':
-        case 'tokens':
-          await handleLengthCommand(session);
-          break;
         case 'login':
         case 'auth':
         case 'key':
@@ -180,7 +173,6 @@ export async function startRepl(session) {
         apiKey: session.apiKey,
         model: session.model,
         messages: messagesToSend,
-        maxTokens: session.maxTokens || 750,
         temperature: session.temperature ?? 0.4,
         onChunk: (chunk) => {
           if (!startedStreaming) {
@@ -220,13 +212,15 @@ export async function startRepl(session) {
       console.log();
       console.error(chalk.red(`❌ Error: ${err.message}`));
       if (!session.apiKey) {
-        console.log(chalk.yellow('💡 Hint: Run /login to set your API key.'));
+        console.log(chalk.yellow('💡 Подсказка: Введите API ключ с помощью команды /login'));
       } else if (err.message.includes('401') || err.message.includes('Unauthorized')) {
-        console.log(chalk.yellow('💡 Hint: Your API key appears invalid. Run /login to re-enter it.'));
+        console.log(chalk.yellow('💡 Подсказка: Неверный API ключ. Введите актуальный ключ через /login'));
+      } else if (err.message.includes('402') || err.message.includes('credits')) {
+        console.log(chalk.yellow('💡 Подсказка: Для этой коммерческой модели нужен баланс на openrouter.ai/credits или выберите бесплатную модель через /model'));
+      } else if (err.message.includes('free-models-per-day') || err.message.includes('429')) {
+        console.log(chalk.yellow('💡 Подсказка: Дневной лимит бесплатных запросов OpenRouter исчерпан (50/день). Создайте новый ключ на openrouter.ai, дождитесь сброса или пополните баланс на $1.'));
       } else if (err.message.includes('404') || err.message.includes('No endpoints found') || err.message.includes('unavailable')) {
-        console.log(chalk.yellow(`💡 Hint: Model "${session.model}" is currently unavailable. Type /model to choose another active free model!`));
-      } else if (err.message.includes('rate') || err.message.includes('429')) {
-        console.log(chalk.yellow('💡 Hint: Rate limit reached for this free model. Type /model to switch to another model!'));
+        console.log(chalk.yellow(`💡 Подсказка: Модель "${session.model}" временно недоступна. Выберите другую через /model`));
       }
       console.log();
     }
