@@ -134,121 +134,156 @@ function escapeHtml(str) {
 }
 
 /**
- * Run PKCE OAuth browser authentication flow
+ * Запускает PKCE OAuth авторизацию через браузер без вывода в терминал.
+ *
+ * @returns {{ url: string, result: Promise<string|null>, cancel: () => void }}
  */
-export async function loginViaBrowser() {
+export function startBrowserLogin() {
   const { codeVerifier, codeChallenge } = generatePKCE();
 
-  return new Promise((resolve) => {
-    let resolved = false;
+  let resolved = false;
+  let resolveResult;
+  let server;
+  let timeout;
 
-    const server = http.createServer(async (req, res) => {
-      try {
-        const reqUrl = new URL(req.url, `http://${req.headers.host}`);
+  const result = new Promise((resolve) => {
+    resolveResult = resolve;
+  });
 
-        if (reqUrl.pathname === '/callback') {
-          const code = reqUrl.searchParams.get('code');
-          const error = reqUrl.searchParams.get('error');
-
-          if (error) {
-            res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(`<h1>Ошибка авторизации: ${escapeHtml(error)}</h1><p>Вернитесь в терминал.</p>`);
-            cleanup();
-            resolve(null);
-            return;
-          }
-
-          if (code) {
-            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(SUCCESS_HTML);
-
-            spinner.text = chalk.cyan('Обмен кода авторизации на API ключ...');
-
-            try {
-              const exchangeRes = await fetch('https://openrouter.ai/api/v1/auth/keys', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  code: code,
-                  code_verifier: codeVerifier,
-                  code_challenge_method: 'S256'
-                })
-              });
-
-              if (!exchangeRes.ok) {
-                const errData = await exchangeRes.text();
-                throw new Error(`OpenRouter rejected code exchange: ${errData}`);
-              }
-
-              const data = await exchangeRes.json();
-              cleanup();
-              resolve(data.key);
-              return;
-            } catch (exchangeErr) {
-              console.error(chalk.red(`\nОшибка обмена токена: ${exchangeErr.message}`));
-              cleanup();
-              resolve(null);
-              return;
-            }
-          }
-        }
-
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('Not Found');
-      } catch (err) {
-        cleanup();
-        resolve(null);
-      }
-    });
-
-    server.listen(0, '127.0.0.1', () => {
-      const port = server.address().port;
-      const callbackUrl = `http://localhost:${port}/callback`;
-      const authUrl = `https://openrouter.ai/auth?callback_url=${encodeURIComponent(callbackUrl)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
-
-      console.log(chalk.bold.cyan('\n🌐 Авторизация через браузер'));
-      console.log(chalk.dim('Открываем страницу входа OpenRouter...'));
-      console.log(chalk.dim('Если браузер не открылся автоматически, перейдите по ссылке:\n'));
-      console.log(`  ${chalk.underline.hex('#38bdf8')(authUrl)}\n`);
-
-      openBrowser(authUrl);
-
-      spinner.start();
-    });
-
-    const onKeypress = (str, key) => {
-      if (key && (key.name === 'escape' || (key.sequence === '\u001b' && !key.meta && !key.ctrl && !key.shift))) {
-        console.log(chalk.dim('\n(Авторизация отменена)\n'));
-        cleanup();
-        resolve(null);
-      }
-    };
-    process.stdin.on('keypress', onKeypress);
-
-    const spinner = ora({
-      text: chalk.bold.hex('#38bdf8')('Ожидание подтверждения входа в браузере... ') + chalk.dim('(Esc или Ctrl+C для отмены)'),
-      color: 'cyan'
-    });
-
-    // Timeout after 120 seconds
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        spinner.stop();
-        console.log(chalk.yellow('\n⏳ Время ожидания авторизации в браузере истекло (2 минуты).\n'));
-        cleanup();
-        resolve(null);
-      }
-    }, 120000);
-
-    const cleanup = () => {
-      if (resolved) return;
-      resolved = true;
-      process.stdin.removeListener('keypress', onKeypress);
-      clearTimeout(timeout);
-      spinner.stop();
+  const cleanup = () => {
+    if (resolved) return;
+    resolved = true;
+    if (timeout) clearTimeout(timeout);
+    if (server) {
       try {
         server.close();
       } catch (e) {}
-    };
+    }
+  };
+
+  const cancel = () => {
+    if (resolved) return;
+    cleanup();
+    resolveResult(null);
+  };
+
+  server = http.createServer(async (req, res) => {
+    try {
+      const reqUrl = new URL(req.url, `http://${req.headers.host}`);
+
+      if (reqUrl.pathname === '/callback') {
+        const code = reqUrl.searchParams.get('code');
+        const error = reqUrl.searchParams.get('error');
+
+        if (error) {
+          res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(`<h1>Ошибка авторизации: ${escapeHtml(error)}</h1><p>Вернитесь в терминал.</p>`);
+          cleanup();
+          resolveResult(null);
+          return;
+        }
+
+        if (code) {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(SUCCESS_HTML);
+
+          try {
+            const exchangeRes = await fetch('https://openrouter.ai/api/v1/auth/keys', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                code: code,
+                code_verifier: codeVerifier,
+                code_challenge_method: 'S256'
+              })
+            });
+
+            if (!exchangeRes.ok) {
+              cleanup();
+              resolveResult(null);
+              return;
+            }
+
+            const data = await exchangeRes.json();
+            cleanup();
+            resolveResult(data.key || null);
+            return;
+          } catch (exchangeErr) {
+            cleanup();
+            resolveResult(null);
+            return;
+          }
+        }
+      }
+
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not Found');
+    } catch (err) {
+      cleanup();
+      resolveResult(null);
+    }
   });
+
+  server.listen(0, '127.0.0.1');
+  const port = server.address().port;
+  const callbackUrl = `http://localhost:${port}/callback`;
+  const url = `https://openrouter.ai/auth?callback_url=${encodeURIComponent(callbackUrl)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+
+  openBrowser(url);
+
+  // Timeout after 120 seconds
+  timeout = setTimeout(() => {
+    if (!resolved) {
+      cleanup();
+      resolveResult(null);
+    }
+  }, 120000);
+
+  return { url, result, cancel };
+}
+
+/**
+ * Авторизация в OpenRouter через браузер для REPL (с выводом в терминал и ora-спиннером).
+ *
+ * @returns {Promise<string|null>} API-ключ или null
+ */
+export async function loginViaBrowser() {
+  const { url, result, cancel } = startBrowserLogin();
+
+  console.log(chalk.bold.cyan('\n🌐 Авторизация через браузер'));
+  console.log(chalk.dim('Открываем страницу входа OpenRouter...'));
+  console.log(chalk.dim('Если браузер не открылся автоматически, перейдите по ссылке:\n'));
+  console.log(`  ${chalk.underline.hex('#38bdf8')(url)}\n`);
+
+  const spinner = ora({
+    text: chalk.bold.hex('#38bdf8')('Ожидание подтверждения входа в браузере... ') + chalk.dim('(Esc или Ctrl+C для отмены)'),
+    color: 'cyan'
+  }).start();
+
+  const timeoutTimer = setTimeout(() => {
+    if (spinner.isSpinning) {
+      spinner.stop();
+    }
+    console.log(chalk.yellow('\n⏳ Время ожидания авторизации в браузере истекло (2 минуты).\n'));
+    cancel();
+  }, 120000);
+
+  const onKeypress = (str, key) => {
+    if (key && (key.name === 'escape' || (key.sequence === '\u001b' && !key.meta && !key.ctrl && !key.shift))) {
+      console.log(chalk.dim('\n(Авторизация отменена)\n'));
+      cancel();
+    }
+  };
+  process.stdin.on('keypress', onKeypress);
+
+  try {
+    const key = await result;
+    return key;
+  } finally {
+    clearTimeout(timeoutTimer);
+    process.stdin.removeListener('keypress', onKeypress);
+    if (spinner.isSpinning) {
+      spinner.stop();
+    }
+  }
 }

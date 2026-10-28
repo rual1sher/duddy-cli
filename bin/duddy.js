@@ -5,6 +5,7 @@ import { loadConfig, getActiveApiKey, DEFAULT_SYSTEM_PROMPT } from '../src/confi
 import { getProvider } from '../src/providers.js';
 import { startRepl } from '../src/repl.js';
 import { runAgentTurn } from '../src/agent.js';
+import { createPlainRenderer } from '../src/plainRenderer.js';
 import { formatDuration } from '../src/formatter.js';
 import chalk from 'chalk';
 
@@ -97,9 +98,12 @@ ${chalk.bold('Interactive Commands:')}
       process.exit(1);
     }
 
+    const interactive = process.stdin.isTTY === true;
+    const renderer = createPlainRenderer(session, { interactive });
     const toolCtx = {
       autoApprove: !!session.autoApprove,
-      canPrompt: process.stdin.isTTY === true
+      canPrompt: interactive,
+      ...renderer.toolCtxExtras
     };
 
     const startTime = Date.now();
@@ -112,7 +116,8 @@ ${chalk.bold('Interactive Commands:')}
       const { lastUsage, elapsedMs } = await runAgentTurn({
         session,
         messages: messagesToSend,
-        toolCtx
+        toolCtx,
+        events: renderer.events
       });
 
       const durationStr = formatDuration(elapsedMs ?? (Date.now() - startTime));
@@ -122,6 +127,8 @@ ${chalk.bold('Interactive Commands:')}
     } catch (err) {
       console.error(chalk.red(`\nError: ${err.message}`));
       process.exit(1);
+    } finally {
+      renderer.finish();
     }
     return;
   }

@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { printBanner } from './banner.js';
 import { fetchKeyInfo, getModelContextLength } from './api.js';
 import { runAgentTurn, MAX_HISTORY_TURNS } from './agent.js';
+import { createPlainRenderer } from './plainRenderer.js';
 import { getProvider } from './providers.js';
 import { formatDuration } from './formatter.js';
 import {
@@ -435,12 +436,19 @@ export async function startRepl(session) {
     };
     process.once('SIGINT', onSigintStreaming);
 
+    const renderer = createPlainRenderer(session, { interactive: true });
+    session.toolCtx = {
+      ...(session.toolCtx || { autoApprove: !!session.autoApprove, canPrompt: true }),
+      ...renderer.toolCtxExtras
+    };
+
     try {
       const { finalText, newMessages, lastUsage, elapsedMs } = await runAgentTurn({
         session,
         messages: messagesToSend,
         toolCtx: session.toolCtx,
-        signal: abortController.signal
+        signal: abortController.signal,
+        events: renderer.events
       });
 
       if (lastUsage) {
@@ -524,6 +532,7 @@ export async function startRepl(session) {
         console.log();
       }
     } finally {
+      renderer.finish();
       process.removeListener('SIGINT', onSigintStreaming);
     }
 
