@@ -1,9 +1,23 @@
+/**
+ * @fileoverview Приветственный баннер Duddy CLI
+ */
+
 import chalk from 'chalk';
 import fs from 'node:fs';
 
 const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
-export function printBanner({ model = 'openrouter/free', hasKey = false, temperature = 0.4, cwd = process.cwd() } = {}) {
+/**
+ * Формирует строки приветственного баннера для отображения в терминале.
+ *
+ * @param {object} [options]
+ * @param {string} [options.model='openrouter/free'] - Идентификатор активной модели
+ * @param {string} [options.provider='openrouter'] - Идентификатор активного провайдера
+ * @param {boolean} [options.hasKey=false] - Признак наличия API-ключа
+ * @param {string} [options.cwd=process.cwd()] - Текущая рабочая папка
+ * @returns {string[]} Массив строк баннера
+ */
+export function bannerLines({ model = 'openrouter/free', provider = 'openrouter', hasKey = false, cwd = process.cwd() } = {}) {
   const home = process.env.HOME || process.env.USERPROFILE || '';
   let prettyPath = home && cwd.startsWith(home) ? '~' + cwd.slice(home.length) : cwd;
 
@@ -29,15 +43,16 @@ export function printBanner({ model = 'openrouter/free', hasKey = false, tempera
 
   const hints = '  ' +
     chalk.bold.hex('#94a3b8')('/') + chalk.dim(' — команды · ') +
-    chalk.bold.hex('#94a3b8')('Esc') + chalk.dim(' — отмена · ') +
-    chalk.bold.hex('#94a3b8')('Ctrl+C') + chalk.dim(' — прервать ответ · ') +
+    chalk.bold.hex('#94a3b8')('Esc') + chalk.dim(' — прервать · ') +
     chalk.bold.hex('#94a3b8')('Ctrl+C ×2') + chalk.dim(' — выход');
 
-  console.log();
-  console.log('  ' + logoTop + '   ' + chalk.bold.hex('#38bdf8')('Duddy') + ' ' + chalk.dim(`v${pkg.version}`));
-  console.log('  ' + logoBottom + '   ' + modelInfo);
-  console.log(' '.repeat(24) + chalk.hex('#64748b')(prettyPath));
-  console.log();
-  console.log(hints);
-  console.log();
+  return [
+    '',
+    '  ' + logoTop + '   ' + chalk.bold.hex('#38bdf8')('Duddy') + ' ' + chalk.dim(`v${pkg.version}`),
+    '  ' + logoBottom + '   ' + modelInfo,
+    ' '.repeat(24) + chalk.hex('#64748b')(prettyPath),
+    '',
+    hints,
+    ''
+  ];
 }

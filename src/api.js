@@ -350,6 +350,14 @@ export async function streamChatCompletion({
         }
       }
     }
+
+    // The openai SDK ends the stream quietly on abort instead of throwing,
+    // which would pass a cancelled or timed-out reply off as a finished one
+    if (internalController.signal.aborted) {
+      const abortErr = new Error('Request was aborted.');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
   } catch (err) {
     if (timedOut) {
       const timeoutErr = new Error(`Модель ${model} не ответила за ${Math.round(firstChunkTimeoutMs / 1000)} с — вероятно, перегружена у провайдера. Выберите другую через /model`);

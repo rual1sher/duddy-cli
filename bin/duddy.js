@@ -3,8 +3,9 @@
 import fs from 'node:fs';
 import { loadConfig, getActiveApiKey, DEFAULT_SYSTEM_PROMPT } from '../src/config.js';
 import { getProvider } from '../src/providers.js';
-import { startRepl } from '../src/repl.js';
+import { startTui } from '../src/ui/index.js';
 import { runAgentTurn } from '../src/agent.js';
+import { handleModelError, errorText } from '../src/errors.js';
 import { createPlainRenderer } from '../src/plainRenderer.js';
 import { formatDuration } from '../src/formatter.js';
 import chalk from 'chalk';
@@ -125,7 +126,9 @@ ${chalk.bold('Interactive Commands:')}
       const tokenInfo = lastUsage?.total_tokens ? ` · ${tokFormatted} tok` : '';
       console.log(chalk.hex('#334155')('╰─ ') + chalk.hex('#10b981')('✔ Готово') + chalk.hex('#64748b')(` · ${durationStr}${tokenInfo}\n`));
     } catch (err) {
-      console.error(chalk.red(`\nError: ${err.message}`));
+      console.error(chalk.red(`\nError: ${errorText(err)}`));
+      const hint = handleModelError(err, session);
+      if (hint) console.error(chalk.yellow(`↳ ${hint}`));
       process.exit(1);
     } finally {
       renderer.finish();
@@ -133,8 +136,14 @@ ${chalk.bold('Interactive Commands:')}
     return;
   }
 
-  // Default: Interactive REPL mode
-  await startRepl(session);
+  // If stdin is not TTY and no arguments or piped data provided
+  if (!process.stdin.isTTY) {
+    console.error(chalk.yellow('Интерактивный режим недоступен без TTY. Для разового запроса используйте: duddy "вопрос"'));
+    process.exit(1);
+  }
+
+  // Default: Interactive TUI mode
+  await startTui(session);
 }
 
 main().catch((err) => {

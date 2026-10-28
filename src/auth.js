@@ -1,9 +1,11 @@
+/**
+ * @fileoverview Авторизация через браузер (OAuth PKCE) для OpenRouter
+ */
+
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { exec } from 'node:child_process';
 import os from 'node:os';
-import chalk from 'chalk';
-import ora from 'ora';
 
 /**
  * Generate PKCE code verifier and code challenge (S256)
@@ -240,50 +242,4 @@ export function startBrowserLogin() {
   }, 120000);
 
   return { url, result, cancel };
-}
-
-/**
- * Авторизация в OpenRouter через браузер для REPL (с выводом в терминал и ora-спиннером).
- *
- * @returns {Promise<string|null>} API-ключ или null
- */
-export async function loginViaBrowser() {
-  const { url, result, cancel } = startBrowserLogin();
-
-  console.log(chalk.bold.cyan('\n🌐 Авторизация через браузер'));
-  console.log(chalk.dim('Открываем страницу входа OpenRouter...'));
-  console.log(chalk.dim('Если браузер не открылся автоматически, перейдите по ссылке:\n'));
-  console.log(`  ${chalk.underline.hex('#38bdf8')(url)}\n`);
-
-  const spinner = ora({
-    text: chalk.bold.hex('#38bdf8')('Ожидание подтверждения входа в браузере... ') + chalk.dim('(Esc или Ctrl+C для отмены)'),
-    color: 'cyan'
-  }).start();
-
-  const timeoutTimer = setTimeout(() => {
-    if (spinner.isSpinning) {
-      spinner.stop();
-    }
-    console.log(chalk.yellow('\n⏳ Время ожидания авторизации в браузере истекло (2 минуты).\n'));
-    cancel();
-  }, 120000);
-
-  const onKeypress = (str, key) => {
-    if (key && (key.name === 'escape' || (key.sequence === '\u001b' && !key.meta && !key.ctrl && !key.shift))) {
-      console.log(chalk.dim('\n(Авторизация отменена)\n'));
-      cancel();
-    }
-  };
-  process.stdin.on('keypress', onKeypress);
-
-  try {
-    const key = await result;
-    return key;
-  } finally {
-    clearTimeout(timeoutTimer);
-    process.stdin.removeListener('keypress', onKeypress);
-    if (spinner.isSpinning) {
-      spinner.stop();
-    }
-  }
 }
