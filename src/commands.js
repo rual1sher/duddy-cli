@@ -1,15 +1,22 @@
-import { select, input, password } from './prompts.js';
+/**
+ * @fileoverview Слеш-команды Duddy CLI (/model, /login, /clear, /usage, /help, /exit)
+ */
+
+import { select, input, password, Separator } from './prompts.js';
 import chalk from 'chalk';
 import ora from 'ora';
-import { saveConfig, DEFAULT_SYSTEM_PROMPT } from './config.js';
+import { loadConfig, saveConfig } from './config.js';
 import { printBanner } from './banner.js';
-import { MODEL_CATEGORIES, getAllCuratedModels, searchOpenRouterModels } from './models.js';
-import { loginViaBrowser } from './auth.js';
-import { fetchKeyInfo, getModelContextLength } from './api.js';
+import { CURATED_MODELS, searchOpenRouterModels } from './models.js';
+import { loginViaBrowser, openBrowser } from './auth.js';
+import { fetchKeyInfo, getModelContextLength, listGoogleModels } from './api.js';
+import { getProvider, getProviderKey, detectProviderForModel } from './providers.js';
+import { MAX_HISTORY_TURNS } from './agent.js';
 
 export const AVAILABLE_COMMANDS = [
   { cmd: '/model', desc: 'Сменить AI модель (Gemini, GPT, Claude, Llama, Free...)' },
-  { cmd: '/login', desc: 'Авторизация в OpenRouter (через браузер OAuth или ключ)' },
+  { cmd: '/effort', desc: 'Уровень рассуждений модели: low / medium / high' },
+  { cmd: '/login', desc: 'Авторизация в OpenRouter или Google AI Studio (браузер / ключ)' },
   { cmd: '/clear', desc: 'Очистить историю диалога и экран' },
   { cmd: '/usage', desc: 'Показать статистику текущей сессии' },
   { cmd: '/help', desc: 'Показать список всех команд' },
@@ -17,330 +24,484 @@ export const AVAILABLE_COMMANDS = [
 ];
 
 /**
- * Handle /model command with interactive category browser, search, and manual input
+ * Авторизация в Google AI Studio по API-ключу
+ *
+ * @param {object} session - Текущая сессия Duddy
+ * @returns {Promise<boolean>} Успешность авторизации
  */
-export async function handleModelCommand(args, session) {
-  const trimmedArgs = (args || '').trim();
+export async function loginGoogleAiStudio(session) {
+  console.log(chalk.bold.hex('#38bdf8')('\n✦ Google AI Studio — подключение Gemini API'));
+  console.log(chalk.dim('Сейчас откроется страница: https://aistudio.google.com/apikey'));
+  console.log(chalk.dim('Создайте ключ кнопкой «Create API key», скопируйте его и вставьте ниже.\n'));
 
-  // If user provided a direct model name or keyword
-  if (trimmedArgs) {
-    const lower = trimmedArgs.toLowerCase();
+  openBrowser('https://aistudio.google.com/apikey');
 
-    // Check if user specified a provider keyword
-    let targetCategory = null;
-    if (lower === 'gemini' || lower === 'google') targetCategory = 'google';
-    else if (lower === 'gpt' || lower === 'openai') targetCategory = 'openai';
-    else if (lower === 'claude' || lower === 'anthropic') targetCategory = 'anthropic';
-    else if (lower === 'llama' || lower === 'meta') targetCategory = 'meta';
-    else if (lower === 'free') targetCategory = 'free';
-    else if (lower === 'deepseek') targetCategory = 'deepseek';
-
-    if (targetCategory) {
-      await showCategoryModels(targetCategory, session);
-      return;
-    }
-
-    if (lower.startsWith('search ')) {
-      await searchAndSelectModel(trimmedArgs.slice(7).trim(), session);
-      return;
-    }
-
-    // Direct model ID provided (e.g. google/gemini-3.8-flash)
-    session.model = trimmedArgs;
-    saveConfig({ model: trimmedArgs });
-    console.log(chalk.green(`✓ Модель установлена: ${chalk.bold(trimmedArgs)}\n`));
-    return;
-  }
-
-  // Interactive top-level menu
-  const categoryChoices = [
-    {
-      name: `${MODEL_CATEGORIES.free.title} — ${chalk.dim('openrouter/free, gemma, nemotron')}`,
-      value: 'cat_free',
-      description: MODEL_CATEGORIES.free.description
-    },
-    {
-      name: `${MODEL_CATEGORIES.google.title} — ${chalk.dim('Gemini 3.8 Flash, 3.7 Flash, Lite')}`,
-      value: 'cat_google',
-      description: MODEL_CATEGORIES.google.description
-    },
-    {
-      name: `${MODEL_CATEGORIES.openai.title} — ${chalk.dim('GPT-4.1, GPT-4.1 Mini, GPT-4o, o3-mini')}`,
-      value: 'cat_openai',
-      description: MODEL_CATEGORIES.openai.description
-    },
-    {
-      name: `${MODEL_CATEGORIES.anthropic.title} — ${chalk.dim('Claude Sonnet 4.6, Haiku 4.5, Opus')}`,
-      value: 'cat_anthropic',
-      description: MODEL_CATEGORIES.anthropic.description
-    },
-    {
-      name: `${MODEL_CATEGORIES.meta.title} — ${chalk.dim('Llama 3.3 70B, Llama 4 Scout, 3.1 8B')}`,
-      value: 'cat_meta',
-      description: MODEL_CATEGORIES.meta.description
-    },
-    {
-      name: `${MODEL_CATEGORIES.deepseek.title} — ${chalk.dim('DeepSeek V3, DeepSeek R1')}`,
-      value: 'cat_deepseek',
-      description: MODEL_CATEGORIES.deepseek.description
-    },
-    {
-      name: `📋 ${chalk.bold('Все популярные модели единым списком...')}`,
-      value: '__all__',
-      description: 'Показать все топовые модели без разделения по категориям'
-    },
-    {
-      name: `🔍 ${chalk.cyan('Поиск по каталогу OpenRouter (400+ моделей)...')}`,
-      value: '__search__',
-      description: 'Найти модель по названию или провайдеру онлайн'
-    },
-    {
-      name: `✏️  ${chalk.dim('Ввести ID модели вручную...')}`,
-      value: '__custom__',
-      description: 'Например: mistralai/mistral-large или qwen/qwen-2.5-72b'
-    }
-  ];
-
-  const action = await select({
-    message: 'Выберите категорию или действие:',
-    choices: categoryChoices
+  const key = await password({
+    message: `Введите API ключ Google AI Studio ${chalk.dim('(Esc — отмена)')}:`,
+    mask: '*'
   });
 
-  if (!action) {
+  if (key === null || key === false) {
     console.log(chalk.dim('(Отменено)\n'));
-    return;
+    return false;
   }
 
-  if (action.startsWith('cat_')) {
-    const catKey = action.replace('cat_', '');
-    await showCategoryModels(catKey, session);
-  } else if (action === '__all__') {
-    await showAllCurated(session);
-  } else if (action === '__search__') {
-    const query = await input({ message: `Введите ключевое слово для поиска (например, gemini, claude, qwen) ${chalk.dim('(Esc — отмена)')}:` });
-    if (query === null) {
+  const trimmed = key.trim();
+  if (!trimmed) {
+    console.log(chalk.yellow('! Авторизация отменена, передан пустой ключ.\n'));
+    return false;
+  }
+
+  const spinner = ora({
+    text: chalk.bold.hex('#38bdf8')('Проверка ключа Google AI Studio...'),
+    color: 'cyan'
+  }).start();
+
+  let models;
+  try {
+    models = await listGoogleModels(trimmed);
+    spinner.stop();
+  } catch (err) {
+    spinner.stop();
+    console.error(chalk.red(`\n✖ ${err.message}\n`));
+    return false;
+  }
+
+  saveConfig({ googleApiKey: trimmed });
+
+  let targetModel = 'gemini-3.5-flash';
+  if (!models.includes(targetModel)) {
+    const flashModel = models.find(m => m.toLowerCase().includes('flash'));
+    targetModel = flashModel || models[0] || 'gemini-3.5-flash';
+  }
+
+  session.provider = 'google';
+  session.apiKey = trimmed;
+  session.model = targetModel;
+  saveConfig({ provider: 'google', model: targetModel });
+
+  try {
+    session.contextLength = await getModelContextLength(targetModel, 'google', trimmed);
+  } catch {}
+
+  console.log(chalk.green(`✓ Google AI Studio подключён. Модель: ${chalk.bold(targetModel)}\n`));
+  return true;
+}
+
+/**
+ * Авторизация в OpenRouter (через браузер OAuth или ввод ключа вручную)
+ *
+ * @param {object} session - Текущая сессия Duddy
+ * @param {'browser'|'manual'} [method] - Способ авторизации
+ * @returns {Promise<boolean>} Успешность авторизации
+ */
+export async function loginOpenRouter(session, method) {
+  let selectedMethod = method;
+
+  if (!selectedMethod) {
+    selectedMethod = await select({
+      message: 'Выберите способ авторизации в OpenRouter:',
+      choices: [
+        {
+          name: `🌐 ${chalk.bold.hex('#38bdf8')('Войти через браузер')} ${chalk.green('(OAuth PKCE)')}`,
+          value: 'browser',
+          description: 'Откроет страницу OpenRouter в браузере и автоматически свяжет аккаунт'
+        },
+        {
+          name: `🔑 ${chalk.dim('Вставить API ключ вручную (sk-or-...)')}`,
+          value: 'manual',
+          description: 'Ввести или скопировать существующий ключ из openrouter.ai/keys'
+        }
+      ]
+    });
+
+    if (!selectedMethod) {
       console.log(chalk.dim('(Отменено)\n'));
-      return;
+      return false;
     }
-    if (query.trim()) {
-      await searchAndSelectModel(query.trim(), session);
+  }
+
+  let key = null;
+
+  if (selectedMethod === 'browser') {
+    key = await loginViaBrowser();
+    if (!key) {
+      return false;
     }
-  } else if (action === '__custom__') {
-    const customName = await input({ message: `Введите точный ID модели из OpenRouter ${chalk.dim('(Esc — отмена)')}:` });
-    if (customName === null) {
+  } else if (selectedMethod === 'manual') {
+    console.log(chalk.dim('Получить ключ можно на: https://openrouter.ai/keys'));
+    const inputKey = await password({
+      message: `Введите API ключ OpenRouter (sk-or-...) ${chalk.dim('(Esc — отмена)')}:`,
+      mask: '*'
+    });
+
+    if (inputKey === null || inputKey === false) {
       console.log(chalk.dim('(Отменено)\n'));
-      return;
+      return false;
     }
-    if (customName.trim()) {
-      session.model = customName.trim();
-      saveConfig({ model: session.model });
-      console.log(chalk.green(`✓ Модель установлена: ${chalk.bold(session.model)}\n`));
+
+    const trimmed = inputKey.trim();
+    if (!trimmed) {
+      console.log(chalk.yellow('! Авторизация отменена, передан пустой ключ.\n'));
+      return false;
     }
+    key = trimmed;
   }
+
+  if (key) {
+    saveConfig({ apiKey: key });
+    if (session.provider === 'openrouter') {
+      session.apiKey = key;
+      fetchKeyInfo(key, 'openrouter').then(info => {
+        if (info) session.keyInfo = info;
+      }).catch(() => {});
+    }
+    console.log(chalk.green('✓ Ключ OpenRouter успешно сохранен в ~/.config/duddy/config.json\n'));
+    return true;
+  }
+
+  return false;
 }
 
-async function showCategoryModels(catKey, session) {
-  const cat = MODEL_CATEGORIES[catKey];
-  if (!cat) return;
-
-  const choices = cat.models.map(m => ({
-    name: `${m.badge} ${chalk.bold(m.name)} ${chalk.dim(`(${m.id})`)}`,
-    value: m.id,
-    description: m.desc
-  }));
-
-  choices.push({
-    name: chalk.dim('← Назад в меню выбора'),
-    value: '__back__',
-    description: 'Вернуться к списку категорий'
-  });
-
-  const chosen = await select({
-    message: `${cat.title}:`,
-    choices
-  });
-
-  if (!chosen) {
-    console.log(chalk.dim('(Отменено)\n'));
-    return;
-  }
-
-  if (chosen === '__back__') {
-    await handleModelCommand('', session);
-    return;
-  }
-
-  session.model = chosen;
-  saveConfig({ model: chosen });
-  console.log(chalk.green(`✓ Модель переключена на: ${chalk.bold(chosen)}`));
-
-  if (cat.requiresCredits) {
-    console.log(chalk.dim('💡 Подсказка: для коммерческих моделей (OpenAI, Anthropic, Gemini, Meta) на OpenRouter необходим баланс (от $1 на openrouter.ai/credits) либо привязанный BYOK-ключ.\n'));
-  } else {
-    console.log();
-  }
-}
-
-async function showAllCurated(session) {
-  const all = getAllCuratedModels();
-  const choices = all.map(m => ({
-    name: `${m.badge} ${chalk.bold(m.name)} ${chalk.dim(`(${m.id})`)}`,
-    value: m.id,
-    description: m.desc
-  }));
-
-  choices.push({
-    name: chalk.dim('← Назад'),
-    value: '__back__'
-  });
-
-  const chosen = await select({
-    message: 'Выберите модель:',
-    choices
-  });
-
-  if (!chosen) {
-    console.log(chalk.dim('(Отменено)\n'));
-    return;
-  }
-
-  if (chosen === '__back__') {
-    await handleModelCommand('', session);
-    return;
-  }
-
-  session.model = chosen;
-  saveConfig({ model: chosen });
-  console.log(chalk.green(`✓ Модель переключена на: ${chalk.bold(chosen)}\n`));
-}
-
-async function searchAndSelectModel(query, session) {
-  const spinner = ora({ text: chalk.dim(`Поиск "${query}" в каталоге OpenRouter...`), color: 'cyan' }).start();
-  const results = await searchOpenRouterModels(query);
-  spinner.stop();
-
-  if (results.length === 0) {
-    console.log(chalk.yellow(`По запросу "${query}" ничего не найдено в каталоге OpenRouter.\n`));
-    return;
-  }
-
-  const choices = results.map(m => ({
-    name: `${chalk.bold(m.name || m.id)} ${chalk.dim(`(${m.id})`)}`,
-    value: m.id,
-    description: m.description ? m.description.slice(0, 100) : m.id
-  }));
-
-  choices.push({
-    name: chalk.dim('← Назад'),
-    value: '__back__'
-  });
-
-  const chosen = await select({
-    message: `Результаты поиска (${results.length}):`,
-    choices
-  });
-
-  if (!chosen) {
-    console.log(chalk.dim('(Отменено)\n'));
-    return;
-  }
-
-  if (chosen === '__back__') {
-    await handleModelCommand('', session);
-    return;
-  }
-
-  session.model = chosen;
-  saveConfig({ model: chosen });
-  console.log(chalk.green(`✓ Модель переключена на: ${chalk.bold(chosen)}\n`));
-}
-
+/**
+ * Обработчик команды /login
+ *
+ * @param {object} session - Текущая сессия Duddy
+ * @param {string} [args=''] - Аргументы команды (/login google, /login browser, /login sk-or-...)
+ * @returns {Promise<boolean>}
+ */
 export async function handleLoginCommand(session, args = '') {
   const trimmedArgs = (args || '').trim();
+  const lower = trimmedArgs.toLowerCase();
 
-  if (trimmedArgs.toLowerCase() === 'browser' || trimmedArgs.toLowerCase() === 'web') {
-    const key = await loginViaBrowser();
-    if (key) {
-      saveConfig({ apiKey: key });
-      session.apiKey = key;
-      console.log(chalk.green('✓ Ключ успешно получен и сохранен в ~/.config/duddy/config.json\n'));
-    }
-    return;
+  if (lower === 'google' || lower === 'gemini' || lower === 'aistudio') {
+    return await loginGoogleAiStudio(session);
+  }
+
+  if (lower === 'browser' || lower === 'web') {
+    return await loginOpenRouter(session, 'browser');
   }
 
   if (trimmedArgs.startsWith('sk-or-')) {
     saveConfig({ apiKey: trimmedArgs });
-    session.apiKey = trimmedArgs;
-    console.log(chalk.green('✓ Ключ успешно сохранен в ~/.config/duddy/config.json\n'));
-    return;
+    if (session.provider === 'openrouter') {
+      session.apiKey = trimmedArgs;
+      fetchKeyInfo(trimmedArgs, 'openrouter').then(info => {
+        if (info) session.keyInfo = info;
+      }).catch(() => {});
+    }
+    console.log(chalk.green('✓ Ключ OpenRouter успешно сохранен в ~/.config/duddy/config.json\n'));
+    return true;
   }
 
-  const method = await select({
-    message: 'Выберите способ авторизации в OpenRouter:',
+  const choice = await select({
+    message: 'Выберите способ авторизации:',
     choices: [
       {
-        name: `🌐 ${chalk.bold.hex('#38bdf8')('Войти через браузер')} ${chalk.green('(как в agy / OAuth PKCE)')}`,
-        value: 'browser',
-        description: 'Откроет страницу OpenRouter в браузере и автоматически свяжет аккаунт'
+        name: `🌐 ${chalk.bold.hex('#38bdf8')('OpenRouter')} — ${chalk.green('войти через браузер')}`,
+        value: 'openrouter_browser'
       },
       {
-        name: `✏️  ${chalk.dim('Вставить API ключ вручную (sk-or-...)')}`,
-        value: 'manual',
-        description: 'Ввести или скопировать существующий ключ из openrouter.ai/keys'
+        name: `🔑 ${chalk.bold.hex('#38bdf8')('OpenRouter')} — ${chalk.dim('вставить ключ')}`,
+        value: 'openrouter_manual'
+      },
+      {
+        name: `✦ ${chalk.bold.hex('#38bdf8')('Google AI Studio')} — ${chalk.hex('#10b981')('ключ Gemini API')}`,
+        value: 'google'
       }
     ]
   });
 
-  if (!method) {
+  if (!choice) {
     console.log(chalk.dim('(Отменено)\n'));
-    return;
+    return false;
   }
 
-  if (method === 'browser') {
-    const key = await loginViaBrowser();
-    if (key) {
-      saveConfig({ apiKey: key });
-      session.apiKey = key;
-      console.log(chalk.green('✓ Успешный вход! Ключ OpenRouter сохранен в ~/.config/duddy/config.json\n'));
+  if (choice === 'openrouter_browser') {
+    return await loginOpenRouter(session, 'browser');
+  }
+
+  if (choice === 'openrouter_manual') {
+    return await loginOpenRouter(session, 'manual');
+  }
+
+  if (choice === 'google') {
+    return await loginGoogleAiStudio(session);
+  }
+
+  return false;
+}
+
+/**
+ * Применить выбор модели с проверкой наличия ключа провайдера
+ *
+ * @param {string} modelId - Идентификатор модели
+ * @param {string} providerId - Идентификатор провайдера
+ * @param {string} displayName - Отображаемое имя модели
+ * @param {object} session - Текущая сессия Duddy
+ * @returns {Promise<boolean>}
+ */
+async function applyModelSelection(modelId, providerId, displayName, session) {
+  const provider = getProvider(providerId);
+  const config = loadConfig();
+  let key = getProviderKey(provider.id, config);
+
+  if (!key) {
+    console.log(chalk.yellow(`Для модели ${chalk.bold(displayName || modelId)} требуется ключ ${provider.title}.`));
+    let success = false;
+    if (provider.id === 'google') {
+      success = await loginGoogleAiStudio(session);
+    } else {
+      success = await loginOpenRouter(session);
     }
+
+    if (!success) {
+      console.log(chalk.yellow('Модель не изменена: ключ не настроен.\n'));
+      return false;
+    }
+
+    const updatedConfig = loadConfig();
+    key = getProviderKey(provider.id, updatedConfig) || session.apiKey;
+  }
+
+  session.provider = provider.id;
+  session.apiKey = key;
+  session.model = modelId;
+  saveConfig({ provider: provider.id, model: modelId });
+
+  try {
+    session.contextLength = await getModelContextLength(modelId, provider.id, key);
+  } catch {}
+
+  const nameToShow = displayName || modelId;
+  console.log(chalk.green(`✓ Модель: ${chalk.bold(nameToShow)} · ${chalk.dim(provider.title)}\n`));
+  return true;
+}
+
+/**
+ * Обработчик команды /model для переключения и поиска моделей
+ *
+ * @param {string} args - Аргументы команды (например, прямой ID модели)
+ * @param {object} session - Текущая сессия Duddy
+ */
+export async function handleModelCommand(args, session) {
+  const trimmedArgs = (args || '').trim();
+
+  // Если передан прямой аргумент (например, /model gemini-3.8-flash или /model openai/gpt-4.1)
+  if (trimmedArgs) {
+    const provId = detectProviderForModel(trimmedArgs);
+    await applyModelSelection(trimmedArgs, provId, trimmedArgs, session);
     return;
   }
 
-  console.log(chalk.dim('Получить ключ можно на: https://openrouter.ai/keys'));
-  const key = await password({
-    message: `Введите API ключ OpenRouter (sk-or-...) ${chalk.dim('(Esc — отмена)')}:`,
-    mask: '*'
+  // Интерактивное меню без аргументов
+  const config = loadConfig();
+  const googleKey = getProviderKey('google', config);
+
+  let extraGoogleModels = [];
+  if (googleKey) {
+    const spinner = ora({
+      text: chalk.dim('Загрузка моделей Google AI Studio...'),
+      color: 'cyan'
+    }).start();
+
+    try {
+      const gModels = await listGoogleModels(googleKey);
+      spinner.stop();
+      const curatedIds = new Set(CURATED_MODELS.map(m => m.id));
+      const candidates = gModels.filter(id => !curatedIds.has(id));
+      extraGoogleModels = candidates.slice(0, 3).map(id => ({
+        id,
+        name: id,
+        provider: 'google',
+        note: 'AI Studio'
+      }));
+    } catch {
+      spinner.stop();
+      // Ошибки списка молча игнорировать
+    }
+  }
+
+  let lastGoogleIndex = -1;
+  for (let i = CURATED_MODELS.length - 1; i >= 0; i--) {
+    if (CURATED_MODELS[i].provider === 'google') {
+      lastGoogleIndex = i;
+      break;
+    }
+  }
+
+  const modelList = [];
+  for (let i = 0; i < CURATED_MODELS.length; i++) {
+    modelList.push(CURATED_MODELS[i]);
+    if (i === lastGoogleIndex && extraGoogleModels.length > 0) {
+      modelList.push(...extraGoogleModels);
+    }
+  }
+  if (lastGoogleIndex === -1 && extraGoogleModels.length > 0) {
+    modelList.push(...extraGoogleModels);
+  }
+
+  // Если текущая модель не в списке — добавить её первой строкой с ✓
+  const isCurrentInList = modelList.some(m => m.id === session.model);
+  if (!isCurrentInList) {
+    const detectedProv = session.provider || detectProviderForModel(session.model);
+    modelList.unshift({
+      id: session.model,
+      name: session.model,
+      provider: detectedProv,
+      note: 'текущая'
+    });
+  }
+
+  const choices = modelList.map(item => {
+    const current = item.id === session.model;
+    const providerTitle = getProvider(item.provider).title;
+    const line = `${current ? chalk.green('✓') : ' '} ${item.name.padEnd(18)} ${chalk.dim(providerTitle.padEnd(17))} ${chalk.dim(item.note)}`;
+    return {
+      name: line,
+      value: item.id
+    };
   });
 
-  if (key === null) {
+  choices.push(new Separator());
+  choices.push({
+    name: '🔍 Другая модель…',
+    value: '__other__'
+  });
+
+  const chosenId = await select({
+    message: `Модель (сейчас: ${session.model}):`,
+    choices,
+    default: session.model
+  });
+
+  if (!chosenId) {
     console.log(chalk.dim('(Отменено)\n'));
     return;
   }
 
-  if (key.trim()) {
-    const trimmed = key.trim();
-    saveConfig({ apiKey: trimmed });
-    session.apiKey = trimmed;
-    console.log(chalk.green('✓ Ключ успешно сохранен в ~/.config/duddy/config.json\n'));
-  } else {
-    console.log(chalk.yellow('! Авторизация отменена, передан пустой ключ.\n'));
+  if (chosenId === '__other__') {
+    const query = await input({
+      message: `Название или ID модели ${chalk.dim('(Esc — отмена)')}:`
+    });
+
+    if (query === null || query === false) {
+      console.log(chalk.dim('(Отменено)\n'));
+      return;
+    }
+
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      return;
+    }
+
+    const searchSpinner = ora({
+      text: chalk.dim(`Поиск "${trimmedQuery}"...`),
+      color: 'cyan'
+    }).start();
+
+    const qLower = trimmedQuery.toLowerCase();
+    const searchResults = [];
+
+    // Поиск по моделям Google AI Studio (если есть ключ)
+    if (googleKey) {
+      try {
+        const gModels = await listGoogleModels(googleKey);
+        for (const gId of gModels) {
+          if (gId.toLowerCase().includes(qLower)) {
+            searchResults.push({
+              id: gId,
+              name: gId,
+              provider: 'google'
+            });
+          }
+        }
+      } catch {}
+    }
+
+    // Поиск по каталогу OpenRouter
+    try {
+      const orModels = await searchOpenRouterModels(trimmedQuery);
+      for (const m of orModels) {
+        searchResults.push({
+          id: m.id,
+          name: m.name || m.id,
+          provider: 'openrouter'
+        });
+      }
+    } catch {}
+
+    searchSpinner.stop();
+
+    const limitedResults = searchResults.slice(0, 20);
+    const searchChoices = limitedResults.map(item => {
+      const pTitle = getProvider(item.provider).title;
+      return {
+        name: `${item.name} ${chalk.dim(`(${pTitle})`)}`,
+        value: item
+      };
+    });
+
+    if (searchChoices.length > 0) {
+      searchChoices.push(new Separator());
+    }
+
+    const customProvider = detectProviderForModel(trimmedQuery);
+    searchChoices.push({
+      name: `Использовать «${trimmedQuery}» как ID модели`,
+      value: {
+        id: trimmedQuery,
+        name: trimmedQuery,
+        provider: customProvider
+      }
+    });
+
+    const chosenSearchItem = await select({
+      message: `Результаты поиска для "${trimmedQuery}":`,
+      choices: searchChoices
+    });
+
+    if (!chosenSearchItem) {
+      console.log(chalk.dim('(Отменено)\n'));
+      return;
+    }
+
+    await applyModelSelection(chosenSearchItem.id, chosenSearchItem.provider, chosenSearchItem.name, session);
+    return;
+  }
+
+  // Выбран пункт из основного списка
+  const selectedItem = modelList.find(m => m.id === chosenId);
+  if (selectedItem) {
+    await applyModelSelection(selectedItem.id, selectedItem.provider, selectedItem.name, session);
   }
 }
 
+/**
+ * Обработчик команды /help
+ */
 export function handleHelpCommand() {
   console.log(chalk.bold.cyan('\n⚡ Доступные слеш-команды:'));
   for (const cmd of AVAILABLE_COMMANDS) {
     console.log(`  ${chalk.yellow(cmd.cmd.padEnd(16))} ${chalk.dim('—')} ${cmd.desc}`);
   }
-  console.log(chalk.dim('\n💡 Подсказка: нажми Tab после ввода / для автодополнения команд.'));
+  console.log(chalk.dim('\n💡 Подсказка: введи / — появится список команд (↑↓ выбор, Tab подставить, Enter выполнить).'));
   console.log(chalk.bold.hex('#38bdf8')('\n🛠️  Файловые операции (AI Agent):'));
   console.log(chalk.dim('  Duddy умеет создавать папки, файлы, читать и точечно изменять код в файлах.'));
   console.log(chalk.dim('  Просто напишите в чат: "создай папку src/components", "прочитай package.json" и т.д.\n'));
 }
 
+/**
+ * Обработчик команды /clear
+ *
+ * @param {object} session - Текущая сессия Duddy
+ */
 export function handleClearCommand(session) {
   console.clear();
   session.messages = [];
+  if (session.toolCtx) {
+    session.toolCtx.autoApprove = !!session.autoApprove;
+  }
   printBanner({
     model: session.model,
     hasKey: !!session.apiKey,
@@ -375,25 +536,29 @@ function getTimeUntilMidnightUTC() {
   return `${hours}ч ${mins}м`;
 }
 
+/**
+ * Обработчик команды /usage
+ *
+ * @param {object} session - Текущая сессия Duddy
+ */
 export async function handleUsageCommand(session) {
   if (!session.contextLength) {
     try {
-      session.contextLength = await getModelContextLength(session.model);
+      session.contextLength = await getModelContextLength(session.model, session.provider, session.apiKey);
     } catch {}
   }
 
   const turns = session.messages.filter(m => m.role === 'user').length;
   const totalTokens = session.totalTokens ?? 0;
   const lastTokens = session.lastUsage?.total_tokens ?? 0;
-  const maxContext = session.contextLength || 128000;
+  const maxContext = session.contextLength || 1000000;
   const remainingTokens = Math.max(0, maxContext - lastTokens);
   const contextUsedPct = Math.min(100, Math.max(0, Math.round((lastTokens / maxContext) * 100)));
 
-  const historyCount = session.messages.length;
-  const maxHistory = 20;
-  const histPct = Math.round((historyCount / maxHistory) * 100);
+  const histPct = Math.round((turns / MAX_HISTORY_TURNS) * 100);
+  const provider = getProvider(session.provider);
 
-  console.log(chalk.bold.cyan('\n📊 Мониторинг лимитов и токенов (OpenRouter):'));
+  console.log(chalk.bold.cyan(`\n📊 Мониторинг лимитов и токенов (${provider.title}):`));
   console.log();
 
   // 1. Окно контекста активной модели (Context Window)
@@ -404,7 +569,7 @@ export async function handleUsageCommand(session) {
   console.log(chalk.dim(`  ↳ Занято в текущем контексте: ${chalk.bold.hex('#f59e0b')(lastTokens.toLocaleString('ru-RU'))} токенов (${contextUsedPct}%)`));
   console.log(chalk.dim(`  ↳ Осталось свободно в окне модели: ${chalk.bold.hex('#10b981')(remainingTokens.toLocaleString('ru-RU'))} токенов (${100 - contextUsedPct}%)\n`));
 
-  // 2. Дневной лимит бесплатных запросов (если есть)
+  // 2. Дневной лимит бесплатных запросов (если есть - только для OpenRouter)
   if (session.keyInfo?.free_model_daily_requests) {
     const { remaining, limit, used } = session.keyInfo.free_model_daily_requests;
     const freePct = Math.round((used / limit) * 100);
@@ -414,7 +579,7 @@ export async function handleUsageCommand(session) {
     console.log(chalk.dim(`  ↳ Сбрасывается каждые сутки в 00:00 UTC (до сброса осталось: ${chalk.hex('#38bdf8')(timeUntilReset)})\n`));
   }
 
-  // 3. Периодический расход аккаунта
+  // 3. Периодический расход аккаунта (если есть - только для OpenRouter)
   const dailySpend = Number(session.keyInfo?.usage_daily || 0).toFixed(2);
   const weeklySpend = Number(session.keyInfo?.usage_weekly || 0).toFixed(2);
   const monthlySpend = Number(session.keyInfo?.usage_monthly || 0).toFixed(2);
@@ -431,56 +596,57 @@ export async function handleUsageCommand(session) {
 
   // 4. Буфер диалога и суммарный расход сессии
   console.log(chalk.bold('  📦 Буфер памяти диалога (Context History):'));
-  console.log('  ' + makeProgressBar(histPct) + chalk.dim('  ·  ') + chalk.hex('#94a3b8')(`${historyCount} из ${maxHistory} сообщений в памяти диалога`));
+  console.log('  ' + makeProgressBar(histPct) + chalk.dim('  ·  ') + chalk.hex('#94a3b8')(`${turns} из ${MAX_HISTORY_TURNS} ходов`));
   console.log(chalk.dim(`  ↳ Запросов в текущем сеансе: ${chalk.bold(turns)}`));
   console.log(chalk.dim(`  ↳ Всего токенов обработано за сессию (счётчик): ${chalk.hex('#f59e0b')(`${totalTokens.toLocaleString('ru-RU')} tok`)}\n`));
 }
 
+/**
+ * Обработчик команды /effort для переключения уровня рассуждений модели
+ *
+ * @param {string} args - Аргументы команды (auto, low, medium, high)
+ * @param {object} session - Текущая сессия Duddy
+ */
+export async function handleEffortCommand(args, session) {
+  const validEfforts = ['auto', 'low', 'medium', 'high'];
+  const trimmed = (args || '').trim().toLowerCase();
 
-export async function handleSystemCommand(session) {
-  const choice = await select({
-    message: 'Выберите роль / характер ассистента:',
-    choices: [
-      {
-        name: '🚀 Лаконичный DevOps & Dev (По умолчанию) — суть, код и команды без воды, экономия токенов',
-        value: DEFAULT_SYSTEM_PROMPT
-      },
-      {
-        name: '⚡ Ультра-краткий помощник терминала — только bash-команда и флаги',
-        value: 'You are Duddy, an ultra-concise terminal command generator. Output strictly the executable command with minimal comments. Zero conversational pleasantries. Zero explanations unless critical for system safety.'
-      },
-      {
-        name: '📚 Старший Ментор и Архитектор — развернутые архитектурные разборы и лучшие практики',
-        value: 'You are Duddy, a Senior Full-Stack and DevOps mentor. Provide in-depth explanations, architectural considerations, and clean, modern code examples. Avoid empty pleasantries.'
-      },
-      {
-        name: '✏️ Свой системный промпт...',
-        value: '__custom__'
-      }
-    ]
+  if (trimmed) {
+    if (!validEfforts.includes(trimmed)) {
+      console.log(chalk.yellow(`Неизвестный уровень рассуждений: "${trimmed}". Допустимые: auto, low, medium, high\n`));
+      return;
+    }
+    session.reasoningEffort = trimmed;
+    saveConfig({ reasoningEffort: trimmed });
+    console.log(chalk.green(`✓ Уровень рассуждений: ${trimmed}\n`));
+    return;
+  }
+
+  const current = session.reasoningEffort || 'auto';
+  const effortOptions = [
+    { value: 'auto', label: 'auto — по умолчанию модели' },
+    { value: 'low', label: 'low — быстро, меньше размышлений' },
+    { value: 'medium', label: 'medium — баланс' },
+    { value: 'high', label: 'high — максимум качества, медленнее' }
+  ];
+
+  const choices = effortOptions.map(opt => ({
+    name: `${opt.value === current ? chalk.green('✓') : ' '} ${opt.label}`,
+    value: opt.value
+  }));
+
+  const chosen = await select({
+    message: `Уровень рассуждений (сейчас: ${current}):`,
+    choices,
+    default: current
   });
 
-  if (!choice) {
+  if (!chosen) {
     console.log(chalk.dim('(Отменено)\n'));
     return;
   }
 
-  if (choice === '__custom__') {
-    const customPrompt = await input({
-      message: `Введите свой системный промпт ${chalk.dim('(Esc — отмена)')}:`
-    });
-    if (customPrompt === null) {
-      console.log(chalk.dim('(Отменено)\n'));
-      return;
-    }
-    if (customPrompt.trim()) {
-      session.systemPrompt = customPrompt.trim();
-      saveConfig({ systemPrompt: session.systemPrompt });
-      console.log(chalk.green('✓ Системный промпт обновлен!\n'));
-    }
-  } else {
-    session.systemPrompt = choice;
-    saveConfig({ systemPrompt: choice });
-    console.log(chalk.green('✓ Роль ассистента успешно изменена!\n'));
-  }
+  session.reasoningEffort = chosen;
+  saveConfig({ reasoningEffort: chosen });
+  console.log(chalk.green(`✓ Уровень рассуждений: ${chosen}\n`));
 }

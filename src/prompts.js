@@ -2,7 +2,8 @@ import {
   select as inqSelect,
   input as inqInput,
   password as inqPassword,
-  confirm as inqConfirm
+  confirm as inqConfirm,
+  Separator
 } from '@inquirer/prompts';
 import readline from 'node:readline';
 import chalk from 'chalk';
@@ -106,16 +107,4 @@ export function confirm(config, context) {
   return withEsc(inqConfirm, config, context);
 }
 
-/**
- * Specialized action confirmation:
- * - Pressing ENTER confirms (default is true)
- * - Pressing Ctrl+C or Esc cancels only the action (returns false without exiting Duddy)
- */
-export async function confirmAction(message) {
-  const result = await confirm({
-    message: `${message} ${chalk.dim('[Enter: Да • Ctrl+C: Отмена]')}`,
-    default: true,
-    cancelOnSigint: true
-  });
-  return Boolean(result);
-}
+export { Separator };

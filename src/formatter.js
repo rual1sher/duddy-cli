@@ -1,6 +1,28 @@
 import chalk from 'chalk';
 
 /**
+ * Форматирует миллисекунды в читаемую строку длительности:
+ * < 60 000 мс → Xs (например, 4.2s)
+ * >= 60 000 мс → Xm Ys (например, 1m 05s)
+ *
+ * @param {number} ms - Время в миллисекундах
+ * @returns {string}
+ */
+export function formatDuration(ms) {
+  if (ms < 60000) {
+    return `${(ms / 1000).toFixed(1)}s`;
+  }
+  let mins = Math.floor(ms / 60000);
+  let secsNum = Math.round((ms % 60000) / 1000);
+  if (secsNum === 60) {
+    mins += 1;
+    secsNum = 0;
+  }
+  const secs = String(secsNum).padStart(2, '0');
+  return `${mins}m ${secs}s`;
+}
+
+/**
  * Terminal renderer with Markdown formatting and instant streaming.
  */
 export class AnimatedTerminalRenderer {

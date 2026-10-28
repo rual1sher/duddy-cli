@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 
-import { loadConfig, getApiKey } from '../src/config.js';
+import fs from 'node:fs';
+import { loadConfig, getActiveApiKey, DEFAULT_SYSTEM_PROMPT } from '../src/config.js';
+import { getProvider } from '../src/providers.js';
 import { startRepl } from '../src/repl.js';
-import { streamChatCompletion, getModelContextLength } from '../src/api.js';
-import { AnimatedTerminalRenderer } from '../src/formatter.js';
-import { AGENT_TOOLS, executeTool } from '../src/tools.js';
+import { runAgentTurn } from '../src/agent.js';
+import { formatDuration } from '../src/formatter.js';
 import chalk from 'chalk';
-import ora from 'ora';
+
+const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 async function readStdin() {
   const chunks = [];
@@ -18,20 +20,13 @@ async function readStdin() {
 
 async function main() {
   const config = loadConfig();
-  const apiKey = getApiKey();
+  const provider = config.provider || 'openrouter';
+  const apiKey = getActiveApiKey(config);
 
-  const session = {
-    apiKey,
-    model: config.model || 'openrouter/free',
-    temperature: config.temperature ?? 0.4,
-    systemPrompt: config.systemPrompt,
-    messages: []
-  };
-
-  const args = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
 
   // Handle flags
-  if (args.includes('--help') || args.includes('-h')) {
+  if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
     console.log(`
 ${chalk.bold.cyan('Duddy')} - Terminal AI Assistant for Linux & DevOps
 
@@ -40,21 +35,47 @@ ${chalk.bold('Usage:')}
   ${chalk.green('duddy "your question"')}       Ask a quick one-off question
   ${chalk.green('cat error.log | duddy "explain"')} Analyze piped input
 
+${chalk.bold('Options:')}
+  ${chalk.yellow('-y, --yes')}   Automatically confirm all tool actions without prompt
+  ${chalk.yellow('-h, --help')}  Show help
+  ${chalk.yellow('-v, --version')} Show version
+
 ${chalk.bold('Interactive Commands:')}
   ${chalk.yellow('/model')}   Switch AI models (Gemini, GPT, Claude, Llama, Free...)
-  ${chalk.yellow('/login')}   Configure OpenRouter API Key
+  ${chalk.yellow('/effort')}  Set reasoning level (auto, low, medium, high)
+  ${chalk.yellow('/login')}   Login: OpenRouter or Google AI Studio
   ${chalk.yellow('/clear')}   Clear conversation context
-  ${chalk.yellow('/system')}  Change AI personality / prompt
   ${chalk.yellow('/usage')}   Show session stats
   ${chalk.yellow('/exit')}    Quit session
 `);
     process.exit(0);
   }
 
-  if (args.includes('--version') || args.includes('-v')) {
-    console.log('duddy v1.3.0');
+  if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
+    console.log(`duddy v${pkg.version}`);
     process.exit(0);
   }
+
+  let autoApprove = false;
+  const args = [];
+  for (const arg of rawArgs) {
+    if (arg === '--yes' || arg === '-y') {
+      autoApprove = true;
+    } else {
+      args.push(arg);
+    }
+  }
+
+  const session = {
+    provider,
+    apiKey,
+    model: config.model || (provider === 'google' ? 'gemini-3.5-flash' : 'openrouter/free'),
+    reasoningEffort: config.reasoningEffort || 'auto',
+    temperature: config.temperature ?? 0.4,
+    systemPrompt: DEFAULT_SYSTEM_PROMPT,
+    messages: [],
+    autoApprove
+  };
 
   // Check if data is being piped via stdin (e.g. cat file.log | duddy "explain")
   let pipedData = '';
@@ -70,110 +91,35 @@ ${chalk.bold('Interactive Commands:')}
       : userPrompt;
 
     if (!session.apiKey) {
-      console.error(chalk.red('Error: OpenRouter API key not configured. Run `duddy` interactively or set OPENROUTER_API_KEY.'));
+      const p = getProvider(session.provider);
+      const envHint = p.envVars.join(' или ');
+      console.error(chalk.red(`Error: ${p.title} API key not configured. Run \`duddy\` interactively or set ${envHint}.`));
       process.exit(1);
     }
 
-    const startTime = Date.now();
-    let spinner = ora({
-      text: chalk.bold.hex('#38bdf8')('Duddy думает... ') + chalk.hex('#64748b')(`(${session.model})`),
-      color: 'cyan',
-      spinner: 'dots12'
-    }).start();
+    const toolCtx = {
+      autoApprove: !!session.autoApprove,
+      canPrompt: process.stdin.isTTY === true
+    };
 
+    const startTime = Date.now();
     const messagesToSend = [
       { role: 'system', content: session.systemPrompt },
       { role: 'user', content: combinedContent }
     ];
 
-    let lastTurnUsage = null;
-    const MAX_TOOL_TURNS = 10;
-    let turn = 0;
-
     try {
-      while (turn < MAX_TOOL_TURNS) {
-        turn++;
-        let startedStreaming = false;
-        const renderer = new AnimatedTerminalRenderer();
+      const { lastUsage, elapsedMs } = await runAgentTurn({
+        session,
+        messages: messagesToSend,
+        toolCtx
+      });
 
-        const { content, toolCalls, usage } = await streamChatCompletion({
-          apiKey: session.apiKey,
-          model: session.model,
-          messages: messagesToSend,
-          tools: AGENT_TOOLS,
-          temperature: session.temperature,
-          onReasoning: () => {
-            if (!startedStreaming && spinner.isSpinning) {
-              spinner.text = chalk.bold.hex('#38bdf8')('Duddy рассуждает... ') + chalk.hex('#64748b')(`(${session.model})`);
-            }
-          },
-          onChunk: (chunk) => {
-            if (!startedStreaming) {
-              if (!chunk.trim()) return;
-              spinner.stop();
-              process.stdout.write(chalk.hex('#334155')('\n╭─ ') + chalk.bold.hex('#38bdf8')('✦ Duddy') + chalk.hex('#475569')(` [${session.model}] `) + chalk.hex('#334155')('─'.repeat(26)) + '\n');
-              startedStreaming = true;
-            }
-            renderer.push(chunk);
-          }
-        });
-
-        if (usage) {
-          lastTurnUsage = usage;
-        }
-
-        if (startedStreaming) {
-          await renderer.flush();
-        }
-
-        if (toolCalls && toolCalls.length > 0) {
-          spinner.stop();
-
-          messagesToSend.push({
-            role: 'assistant',
-            content: content || null,
-            tool_calls: toolCalls
-          });
-
-          for (const call of toolCalls) {
-            const funcName = call.function.name;
-            let funcArgs = {};
-            try {
-              funcArgs = JSON.parse(call.function.arguments || '{}');
-            } catch (err) {
-              funcArgs = {};
-            }
-
-            console.log(chalk.hex('#38bdf8')(`\n⚙️  [Инструмент: ${chalk.bold(funcName)}]`));
-            const toolResult = await executeTool(funcName, funcArgs);
-
-            messagesToSend.push({
-              role: 'tool',
-              tool_call_id: call.id,
-              name: funcName,
-              content: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult)
-            });
-          }
-
-          spinner = ora({
-            text: chalk.bold.hex('#38bdf8')('Duddy анализирует результат... ') + chalk.hex('#64748b')(`(${session.model})`),
-            color: 'cyan',
-            spinner: 'dots12'
-          }).start();
-
-          continue;
-        }
-
-        break;
-      }
-
-      spinner.stop();
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      const tokFormatted = (lastTurnUsage?.total_tokens ?? 0).toLocaleString('ru-RU').replace(/\s/g, ' ');
-      const tokenInfo = lastTurnUsage?.total_tokens ? ` · ${tokFormatted} tok` : '';
-      console.log(chalk.hex('#334155')('╰─ ') + chalk.hex('#10b981')('✔ Готово') + chalk.hex('#64748b')(` · ${elapsed}s${tokenInfo}\n`));
+      const durationStr = formatDuration(elapsedMs ?? (Date.now() - startTime));
+      const tokFormatted = (lastUsage?.total_tokens ?? 0).toLocaleString('ru-RU').replace(/\s/g, ' ');
+      const tokenInfo = lastUsage?.total_tokens ? ` · ${tokFormatted} tok` : '';
+      console.log(chalk.hex('#334155')('╰─ ') + chalk.hex('#10b981')('✔ Готово') + chalk.hex('#64748b')(` · ${durationStr}${tokenInfo}\n`));
     } catch (err) {
-      spinner.stop();
       console.error(chalk.red(`\nError: ${err.message}`));
       process.exit(1);
     }

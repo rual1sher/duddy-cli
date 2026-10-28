@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import chalk from 'chalk';
+import { select } from './prompts.js';
 
 export const AGENT_TOOLS = [
   {
@@ -137,12 +138,71 @@ export const AGENT_TOOLS = [
 ];
 
 /**
- * Normalizes and resolves a target path relative to current working directory
+ * Resolves a target path safely within the root working directory.
+ * Protects against directory traversal and symlink breakout.
+ *
+ * @param {string} targetPath - Path to resolve
+ * @param {object} [options]
+ * @param {boolean} [options.followFinalSymlink=true] - Whether to follow symlinks for the final target
+ * @returns {Promise<{ fullPath: string, relPath: string, error: string|null }>}
  */
-function resolveSafePath(targetPath) {
-  const fullPath = path.resolve(process.cwd(), targetPath || '.');
-  const relPath = path.relative(process.cwd(), fullPath) || '.';
-  return { fullPath, relPath };
+async function resolveSafePath(targetPath, { followFinalSymlink = true } = {}) {
+  const root = await fs.realpath(process.cwd());
+  const fullPath = path.resolve(root, targetPath || '.');
+  const relPath = path.relative(root, fullPath) || '.';
+
+  let curr = fullPath;
+  const segments = [];
+
+  if (!followFinalSymlink && fullPath !== root) {
+    segments.push(path.basename(fullPath));
+    curr = path.dirname(fullPath);
+  }
+
+  let real;
+  while (true) {
+    try {
+      const realCurr = await fs.realpath(curr);
+      const tail = [...segments].reverse();
+      real = tail.length > 0 ? path.join(realCurr, ...tail) : realCurr;
+      break;
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        // A dangling symlink also yields ENOENT, but writing through it would escape root
+        const isDanglingLink = await fs.lstat(curr).then(s => s.isSymbolicLink(), () => false);
+        if (isDanglingLink) {
+          return {
+            fullPath,
+            relPath,
+            error: `Ошибка: Доступ запрещён — путь "${targetPath}" ведёт через битую символическую ссылку.`
+          };
+        }
+        const parent = path.dirname(curr);
+        if (parent === curr) {
+          const tail = [...segments].reverse();
+          real = tail.length > 0 ? path.join(curr, ...tail) : curr;
+          break;
+        }
+        segments.push(path.basename(curr));
+        curr = parent;
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  const rel = path.relative(root, real);
+  const isOutside = rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel);
+
+  if (isOutside) {
+    return {
+      fullPath,
+      relPath,
+      error: `Ошибка: Доступ запрещён — путь "${targetPath}" находится за пределами рабочей папки ${root}.`
+    };
+  }
+
+  return { fullPath, relPath, error: null };
 }
 
 /**
@@ -153,6 +213,20 @@ function validateFilePath(targetPath, toolName) {
     return `Ошибка: Не указано имя файла в параметре path (получено "${targetPath || ''}"). Укажите путь к файлу, например: "index.html".`;
   }
   return null;
+}
+
+/**
+ * Counts non-overlapping occurrences of needle in haystack
+ */
+function countOccurrences(haystack, needle) {
+  if (!needle) return 0;
+  let count = 0;
+  let pos = 0;
+  while ((pos = haystack.indexOf(needle, pos)) !== -1) {
+    count++;
+    pos += needle.length;
+  }
+  return count;
 }
 
 /**
@@ -167,7 +241,11 @@ function fuzzyReplace(original, oldContent, newContent) {
 
   // Tier 1: Exact match
   if (original.includes(oldContent)) {
-    return { success: true, content: original.replace(oldContent, newContent), method: 'exact' };
+    const count = countOccurrences(original, oldContent);
+    if (count > 1) {
+      return { success: false, reason: 'ambiguous', count };
+    }
+    return { success: true, content: original.replace(oldContent, () => newContent), method: 'exact' };
   }
 
   const isCrlf = original.includes('\r\n');
@@ -177,7 +255,11 @@ function fuzzyReplace(original, oldContent, newContent) {
 
   // Tier 2: CRLF-normalized match
   if (normOriginal.includes(normOld)) {
-    const res = normOriginal.replace(normOld, normNew);
+    const count = countOccurrences(normOriginal, normOld);
+    if (count > 1) {
+      return { success: false, reason: 'ambiguous', count };
+    }
+    const res = normOriginal.replace(normOld, () => normNew);
     return { success: true, content: isCrlf ? res.replace(/\n/g, '\r\n') : res, method: 'crlf-normalized' };
   }
 
@@ -189,7 +271,11 @@ function fuzzyReplace(original, oldContent, newContent) {
   // Tier 4: Trimmed edges match (leading/trailing newlines/spaces)
   const trimmedOld = normOld.trim();
   if (trimmedOld && normOriginal.includes(trimmedOld)) {
-    const res = normOriginal.replace(trimmedOld, normNew.trim());
+    const count = countOccurrences(normOriginal, trimmedOld);
+    if (count > 1) {
+      return { success: false, reason: 'ambiguous', count };
+    }
+    const res = normOriginal.replace(trimmedOld, () => normNew.trim());
     return { success: true, content: isCrlf ? res.replace(/\n/g, '\r\n') : res, method: 'trimmed-edges' };
   }
 
@@ -223,6 +309,10 @@ function fuzzyReplace(original, oldContent, newContent) {
         }
       }
 
+      if (matches.length > 1) {
+        return { success: false, reason: 'ambiguous', count: matches.length };
+      }
+
       if (matches.length === 1) {
         const matchIdx = matches[0];
         const newLines = normNew.split('\n');
@@ -241,9 +331,62 @@ function fuzzyReplace(original, oldContent, newContent) {
 }
 
 /**
- * Execute a tool requested by the model autonomously without confirmation
+ * Asks user for approval before performing dangerous file operations.
+ *
+ * @param {string} name - Tool name
+ * @param {string} relPath - Relative path of the target file or folder
+ * @param {object} [ctx={}] - Tool execution context
+ * @param {boolean} [ctx.autoApprove] - Whether to approve automatically without prompting
+ * @param {boolean} [ctx.canPrompt] - Whether interactive prompt is available
+ * @returns {Promise<{ approved: boolean, message?: string }>}
  */
-export async function executeTool(name, args = {}) {
+async function requestApproval(name, relPath, ctx = {}) {
+  if (ctx.autoApprove) {
+    return { approved: true };
+  }
+
+  if (ctx.canPrompt === false) {
+    const msg = `Отклонено: действие "${name}" требует подтверждения, но интерактивный ввод недоступен (запустите duddy с флагом --yes, чтобы разрешить изменения файлов).`;
+    console.log(chalk.yellow(`  ${msg}`));
+    return { approved: false, message: msg };
+  }
+
+  const answer = await select({
+    message: `Подтвердите действие ${chalk.bold(name)} для ${chalk.bold(relPath)}:`,
+    choices: [
+      { name: 'Да', value: 'yes' },
+      { name: 'Да, и не спрашивать до конца сессии', value: 'all' },
+      { name: 'Нет', value: 'no' }
+    ],
+    cancelOnSigint: true
+  });
+
+  if (answer === 'all') {
+    ctx.autoApprove = true;
+    return { approved: true };
+  }
+
+  if (answer === 'yes') {
+    return { approved: true };
+  }
+
+  console.log(chalk.yellow('  ⊘ Отменено'));
+  return {
+    approved: false,
+    message: `Отклонено пользователем: действие ${name} для "${relPath}" не выполнено. Не повторяй это действие без нового запроса пользователя.`
+  };
+}
+
+/**
+ * Execute a tool requested by the model.
+ * Dangerous file operations require user confirmation unless auto-approved.
+ *
+ * @param {string} name - Tool name to execute
+ * @param {object} [args={}] - Arguments for the tool
+ * @param {object} [ctx={}] - Execution context { autoApprove: boolean, canPrompt: boolean }
+ * @returns {Promise<string>} Tool output string
+ */
+export async function executeTool(name, args = {}, ctx = {}) {
   try {
     switch (name) {
       case 'create_file': {
@@ -253,7 +396,12 @@ export async function executeTool(name, args = {}) {
           return pathError;
         }
 
-        const { fullPath, relPath } = resolveSafePath(args.path);
+        const { fullPath, relPath, error } = await resolveSafePath(args.path);
+        if (error) {
+          console.log(chalk.red('  ✖ ' + error));
+          return error;
+        }
+
         const content = args.content ?? '';
         const exists = fsSync.existsSync(fullPath);
 
@@ -265,6 +413,16 @@ export async function executeTool(name, args = {}) {
           }
         }
 
+        if (!ctx.autoApprove && ctx.canPrompt !== false) {
+          const statusText = exists ? chalk.yellow('ПЕРЕЗАПИСЬ существующего файла') : 'новый файл';
+          console.log(`\n  ${chalk.bold('Файл:')} ${chalk.bold(relPath)} (${statusText}, ${content.length} байт)`);
+        }
+
+        const approval = await requestApproval('create_file', relPath, ctx);
+        if (!approval.approved) {
+          return approval.message;
+        }
+
         await fs.mkdir(path.dirname(fullPath), { recursive: true });
         await fs.writeFile(fullPath, content, 'utf8');
         console.log(chalk.green(`  ✔ Файл сохранен: ${chalk.bold(relPath)} (${content.length} байт)`));
@@ -272,7 +430,12 @@ export async function executeTool(name, args = {}) {
       }
 
       case 'create_folder': {
-        const { fullPath, relPath } = resolveSafePath(args.path);
+        const { fullPath, relPath, error } = await resolveSafePath(args.path);
+        if (error) {
+          console.log(chalk.red('  ✖ ' + error));
+          return error;
+        }
+
         const exists = fsSync.existsSync(fullPath);
 
         if (exists) {
@@ -292,7 +455,12 @@ export async function executeTool(name, args = {}) {
           return pathError;
         }
 
-        const { fullPath, relPath } = resolveSafePath(args.path);
+        const { fullPath, relPath, error } = await resolveSafePath(args.path);
+        if (error) {
+          console.log(chalk.red('  ✖ ' + error));
+          return error;
+        }
+
         if (!fsSync.existsSync(fullPath)) {
           console.log(chalk.red(`  ✖ Файл не найден: ${relPath}`));
           return `Ошибка: Файл ${relPath} не найден.`;
@@ -322,7 +490,12 @@ export async function executeTool(name, args = {}) {
           return pathError;
         }
 
-        const { fullPath, relPath } = resolveSafePath(args.path);
+        const { fullPath, relPath, error } = await resolveSafePath(args.path);
+        if (error) {
+          console.log(chalk.red('  ✖ ' + error));
+          return error;
+        }
+
         if (!fsSync.existsSync(fullPath)) {
           console.log(chalk.red(`  ✖ Файл не найден: ${relPath}`));
           return `Ошибка: Файл ${relPath} не существует. Чтобы создать его, используйте create_file.`;
@@ -345,11 +518,41 @@ export async function executeTool(name, args = {}) {
         const replaceResult = fuzzyReplace(original, oldContent, newContent);
 
         if (!replaceResult.success) {
+          if (replaceResult.reason === 'ambiguous') {
+            const msg = `Ошибка: фрагмент old_content встречается в ${relPath} ${replaceResult.count} раз(а). Добавь в old_content больше соседних строк, чтобы совпадение было единственным.`;
+            console.log(chalk.red(`  ✖ ${msg}`));
+            return msg;
+          }
           console.log(chalk.red(`  ✖ Фрагмент для замены не найден в ${relPath}`));
           return `Ошибка: Указанный old_content не найден в файле ${relPath}.
 Подсказки для исправления:
 1. Если вы хотите полностью перезаписать файл новым содержимым — вызовите инструмент create_file(path: "${relPath}", content: "...").
 2. Для частичной замены сначала вызовите read_file, скопируйте точный непрерывный фрагмент строк из файла (включая отступы).`;
+        }
+
+        if (!ctx.autoApprove && ctx.canPrompt !== false) {
+          console.log(`\n  ${chalk.bold('Файл:')} ${chalk.bold(relPath)}`);
+          const oldLines = oldContent.split('\n');
+          const newLines = newContent.split('\n');
+          const previewOld = oldLines.slice(0, 12);
+          for (const line of previewOld) {
+            console.log(chalk.red(`  - ${line}`));
+          }
+          if (oldLines.length > 12) {
+            console.log(chalk.dim(`  … ещё ${oldLines.length - 12} строк`));
+          }
+          const previewNew = newLines.slice(0, 12);
+          for (const line of previewNew) {
+            console.log(chalk.green(`  + ${line}`));
+          }
+          if (newLines.length > 12) {
+            console.log(chalk.dim(`  … ещё ${newLines.length - 12} строк`));
+          }
+        }
+
+        const approval = await requestApproval('edit_file', relPath, ctx);
+        if (!approval.approved) {
+          return approval.message;
         }
 
         await fs.writeFile(fullPath, replaceResult.content, 'utf8');
@@ -364,15 +567,32 @@ export async function executeTool(name, args = {}) {
           return pathError;
         }
 
-        const { fullPath, relPath } = resolveSafePath(args.path);
-        if (!fsSync.existsSync(fullPath)) {
+        const { fullPath, relPath, error } = await resolveSafePath(args.path, { followFinalSymlink: false });
+        if (error) {
+          console.log(chalk.red('  ✖ ' + error));
+          return error;
+        }
+
+        let stats;
+        try {
+          stats = await fs.lstat(fullPath);
+        } catch (e) {
           console.log(chalk.red(`  ✖ Файл не найден: ${relPath}`));
           return `Ошибка: Файл ${relPath} не существует.`;
         }
 
-        const stats = await fs.stat(fullPath);
         if (stats.isDirectory()) {
+          console.log(chalk.red(`  ✖ Ошибка: Путь "${relPath}" является папкой.`));
           return `Ошибка: Путь "${relPath}" является папкой. Для удаления папок используйте delete_folder.`;
+        }
+
+        if (!ctx.autoApprove && ctx.canPrompt !== false) {
+          console.log(`\n  ${chalk.bold('Удаление файла:')} ${chalk.red(relPath)}`);
+        }
+
+        const approval = await requestApproval('delete_file', relPath, ctx);
+        if (!approval.approved) {
+          return approval.message;
         }
 
         await fs.unlink(fullPath);
@@ -381,19 +601,44 @@ export async function executeTool(name, args = {}) {
       }
 
       case 'delete_folder': {
-        const { fullPath, relPath } = resolveSafePath(args.path);
-        if (!fsSync.existsSync(fullPath)) {
+        const { fullPath, relPath, error } = await resolveSafePath(args.path, { followFinalSymlink: false });
+        if (error) {
+          console.log(chalk.red('  ✖ ' + error));
+          return error;
+        }
+
+        if (relPath === '.') {
+          console.log(chalk.red(`  ✖ Ошибка: Нельзя удалить корневую рабочую папку.`));
+          return `Ошибка: Нельзя удалить корневую рабочую папку.`;
+        }
+
+        let lstats;
+        try {
+          lstats = await fs.lstat(fullPath);
+        } catch (e) {
           console.log(chalk.red(`  ✖ Папка не найдена: ${relPath}`));
           return `Ошибка: Папка ${relPath} не существует.`;
         }
 
-        const stats = await fs.stat(fullPath);
-        if (!stats.isDirectory()) {
+        if (lstats.isSymbolicLink()) {
+          const errMsg = `Ошибка: Путь "${relPath}" является символической ссылкой, удалите её через delete_file.`;
+          console.log(chalk.red(`  ✖ ${errMsg}`));
+          return errMsg;
+        }
+
+        if (!lstats.isDirectory()) {
+          console.log(chalk.red(`  ✖ Ошибка: Путь "${relPath}" является файлом.`));
           return `Ошибка: Путь "${relPath}" является файлом. Для удаления файлов используйте delete_file.`;
         }
 
-        if (fullPath === process.cwd() || relPath === '.') {
-          return `Ошибка: Нельзя удалить корневую рабочую папку.`;
+        if (!ctx.autoApprove && ctx.canPrompt !== false) {
+          const entries = await fs.readdir(fullPath).catch(() => []);
+          console.log(`\n  ${chalk.bold('Удаление папки:')} ${chalk.red(relPath)} ${chalk.red(`(${entries.length} элементов верхнего уровня)`)}`);
+        }
+
+        const approval = await requestApproval('delete_folder', relPath, ctx);
+        if (!approval.approved) {
+          return approval.message;
         }
 
         await fs.rm(fullPath, { recursive: true, force: true });
@@ -402,7 +647,12 @@ export async function executeTool(name, args = {}) {
       }
 
       case 'list_dir': {
-        const { fullPath, relPath } = resolveSafePath(args.path || '.');
+        const { fullPath, relPath, error } = await resolveSafePath(args.path || '.');
+        if (error) {
+          console.log(chalk.red('  ✖ ' + error));
+          return error;
+        }
+
         if (!fsSync.existsSync(fullPath)) {
           console.log(chalk.red(`  ✖ Директория не найдена: ${relPath}`));
           return `Ошибка: Директория ${relPath} не найдена.`;

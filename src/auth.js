@@ -118,6 +118,22 @@ const SUCCESS_HTML = `<!DOCTYPE html>
 </html>`;
 
 /**
+ * Escapes unsafe HTML characters to prevent XSS.
+ *
+ * @param {string} str - String to escape
+ * @returns {string} Escaped HTML string
+ */
+function escapeHtml(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
  * Run PKCE OAuth browser authentication flow
  */
 export async function loginViaBrowser() {
@@ -136,7 +152,7 @@ export async function loginViaBrowser() {
 
           if (error) {
             res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(`<h1>Ошибка авторизации: ${error}</h1><p>Вернитесь в терминал.</p>`);
+            res.end(`<h1>Ошибка авторизации: ${escapeHtml(error)}</h1><p>Вернитесь в терминал.</p>`);
             cleanup();
             resolve(null);
             return;

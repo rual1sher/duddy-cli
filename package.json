@@ -6,6 +6,9 @@
   "bin": {
     "duddy": "bin/duddy.js"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "files": [
     "bin",
     "src",
