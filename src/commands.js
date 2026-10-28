@@ -2,19 +2,19 @@
  * @fileoverview Слеш-команды Duddy CLI (/model, /login, /clear, /usage, /help, /exit)
  */
 
-import { select, input, password, Separator } from './prompts.js';
+import { select, search, password } from './prompts.js';
 import chalk from 'chalk';
 import ora from 'ora';
 import { loadConfig, saveConfig } from './config.js';
 import { printBanner } from './banner.js';
-import { CURATED_MODELS, searchOpenRouterModels } from './models.js';
 import { loginViaBrowser, openBrowser } from './auth.js';
-import { fetchKeyInfo, getModelContextLength, listGoogleModels } from './api.js';
+import { fetchKeyInfo, getModelContextLength } from './api.js';
+import { listModels, findModel, validateGoogleKey, clearCatalogCache } from './catalog.js';
 import { getProvider, getProviderKey, detectProviderForModel } from './providers.js';
 import { MAX_HISTORY_TURNS } from './agent.js';
 
 export const AVAILABLE_COMMANDS = [
-  { cmd: '/model', desc: 'Сменить AI модель (Gemini, GPT, Claude, Llama, Free...)' },
+  { cmd: '/model', desc: 'Список моделей ваших провайдеров с поиском' },
   { cmd: '/effort', desc: 'Уровень рассуждений модели: low / medium / high' },
   { cmd: '/login', desc: 'Авторизация в OpenRouter или Google AI Studio (браузер / ключ)' },
   { cmd: '/clear', desc: 'Очистить историю диалога и экран' },
@@ -57,9 +57,8 @@ export async function loginGoogleAiStudio(session) {
     color: 'cyan'
   }).start();
 
-  let models;
   try {
-    models = await listGoogleModels(trimmed);
+    await validateGoogleKey(trimmed);
     spinner.stop();
   } catch (err) {
     spinner.stop();
@@ -67,22 +66,29 @@ export async function loginGoogleAiStudio(session) {
     return false;
   }
 
-  saveConfig({ googleApiKey: trimmed });
+  clearCatalogCache('google');
 
-  let targetModel = 'gemini-3.5-flash';
-  if (!models.includes(targetModel)) {
-    const flashModel = models.find(m => m.toLowerCase().includes('flash'));
-    targetModel = flashModel || models[0] || 'gemini-3.5-flash';
-  }
+  const config = loadConfig();
+  const targetModel = config.models?.google || getProvider('google').defaultModel;
 
   session.provider = 'google';
   session.apiKey = trimmed;
   session.model = targetModel;
-  saveConfig({ provider: 'google', model: targetModel });
+  saveConfig({
+    googleApiKey: trimmed,
+    provider: 'google',
+    model: targetModel,
+    models: { ...(config.models || {}), google: targetModel }
+  });
 
-  try {
-    session.contextLength = await getModelContextLength(targetModel, 'google', trimmed);
-  } catch {}
+  const cached = findModel(targetModel);
+  if (cached?.contextLength) {
+    session.contextLength = cached.contextLength;
+  } else {
+    try {
+      session.contextLength = await getModelContextLength(targetModel, 'google', trimmed);
+    } catch {}
+  }
 
   console.log(chalk.green(`✓ Google AI Studio подключён. Модель: ${chalk.bold(targetModel)}\n`));
   return true;
@@ -267,11 +273,22 @@ async function applyModelSelection(modelId, providerId, displayName, session) {
   session.provider = provider.id;
   session.apiKey = key;
   session.model = modelId;
-  saveConfig({ provider: provider.id, model: modelId });
 
-  try {
-    session.contextLength = await getModelContextLength(modelId, provider.id, key);
-  } catch {}
+  const currentModels = loadConfig().models || {};
+  saveConfig({
+    provider: provider.id,
+    model: modelId,
+    models: { ...currentModels, [provider.id]: modelId }
+  });
+
+  const cached = findModel(modelId);
+  if (cached?.contextLength) {
+    session.contextLength = cached.contextLength;
+  } else {
+    try {
+      session.contextLength = await getModelContextLength(modelId, provider.id, key);
+    } catch {}
+  }
 
   const nameToShow = displayName || modelId;
   console.log(chalk.green(`✓ Модель: ${chalk.bold(nameToShow)} · ${chalk.dim(provider.title)}\n`));
@@ -295,84 +312,72 @@ export async function handleModelCommand(args, session) {
   }
 
   // Интерактивное меню без аргументов
-  const config = loadConfig();
-  const googleKey = getProviderKey('google', config);
+  const spinner = ora({
+    text: chalk.dim('Загрузка моделей…'),
+    color: 'cyan'
+  }).start();
 
-  let extraGoogleModels = [];
-  if (googleKey) {
-    const spinner = ora({
-      text: chalk.dim('Загрузка моделей Google AI Studio...'),
-      color: 'cyan'
-    }).start();
-
-    try {
-      const gModels = await listGoogleModels(googleKey);
-      spinner.stop();
-      const curatedIds = new Set(CURATED_MODELS.map(m => m.id));
-      const candidates = gModels.filter(id => !curatedIds.has(id));
-      extraGoogleModels = candidates.slice(0, 3).map(id => ({
-        id,
-        name: id,
-        provider: 'google',
-        note: 'AI Studio'
-      }));
-    } catch {
-      spinner.stop();
-      // Ошибки списка молча игнорировать
-    }
+  let models = [];
+  try {
+    models = await listModels(loadConfig());
+  } catch {
+    models = [];
+  } finally {
+    spinner.stop();
   }
 
-  let lastGoogleIndex = -1;
-  for (let i = CURATED_MODELS.length - 1; i >= 0; i--) {
-    if (CURATED_MODELS[i].provider === 'google') {
-      lastGoogleIndex = i;
-      break;
-    }
+  if (!models || models.length === 0) {
+    console.log(chalk.yellow('Нет доступных моделей — выполните /login\n'));
+    return;
   }
 
-  const modelList = [];
-  for (let i = 0; i < CURATED_MODELS.length; i++) {
-    modelList.push(CURATED_MODELS[i]);
-    if (i === lastGoogleIndex && extraGoogleModels.length > 0) {
-      modelList.push(...extraGoogleModels);
-    }
-  }
-  if (lastGoogleIndex === -1 && extraGoogleModels.length > 0) {
-    modelList.push(...extraGoogleModels);
-  }
+  const cfg = loadConfig();
+  const hasBoth = Boolean(getProviderKey('google', cfg) && getProviderKey('openrouter', cfg));
 
-  // Если текущая модель не в списке — добавить её первой строкой с ✓
-  const isCurrentInList = modelList.some(m => m.id === session.model);
-  if (!isCurrentInList) {
-    const detectedProv = session.provider || detectProviderForModel(session.model);
-    modelList.unshift({
-      id: session.model,
-      name: session.model,
-      provider: detectedProv,
-      note: 'текущая'
-    });
-  }
+  const cur = models.find(m => m.id === session.model);
+  const allModels = cur
+    ? models
+    : [
+        {
+          id: session.model,
+          name: session.model,
+          provider: session.provider || detectProviderForModel(session.model)
+        },
+        ...models
+      ];
 
-  const choices = modelList.map(item => {
+  const formatChoice = (item) => {
     const current = item.id === session.model;
-    const providerTitle = getProvider(item.provider).title;
-    const line = `${current ? chalk.green('✓') : ' '} ${item.name.padEnd(18)} ${chalk.dim(providerTitle.padEnd(17))} ${chalk.dim(item.note)}`;
+    const provPrefix = hasBoth
+      ? chalk.dim(item.provider === 'google' ? 'Google · ' : 'OpenRouter · ')
+      : '';
+    const check = current ? chalk.green('✓') : ' ';
     return {
-      name: line,
+      name: `${check} ${provPrefix}${item.name}` + chalk.dim(`  ${item.id}`),
       value: item.id
     };
-  });
+  };
 
-  choices.push(new Separator());
-  choices.push({
-    name: '🔍 Другая модель…',
-    value: '__other__'
-  });
+  const getOrderedList = (term) => {
+    if (!term || !term.trim()) {
+      const currentItem = allModels.find(m => m.id === session.model);
+      const others = allModels.filter(m => m.id !== session.model);
+      return currentItem ? [currentItem, ...others] : allModels;
+    }
 
-  const chosenId = await select({
-    message: `Модель (сейчас: ${session.model}):`,
-    choices,
-    default: session.model
+    const words = term.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    return allModels.filter(m => {
+      const text = `${m.id || ''} ${m.name || ''}`.toLowerCase();
+      return words.every(w => text.includes(w));
+    });
+  };
+
+  const chosenId = await search({
+    message: 'Модель (ввод — поиск)',
+    source: (term) => {
+      const list = getOrderedList(term);
+      return list.map(formatChoice);
+    }
   });
 
   if (!chosenId) {
@@ -380,101 +385,13 @@ export async function handleModelCommand(args, session) {
     return;
   }
 
-  if (chosenId === '__other__') {
-    const query = await input({
-      message: `Название или ID модели ${chalk.dim('(Esc — отмена)')}:`
-    });
+  const selectedItem = allModels.find(m => m.id === chosenId) || {
+    id: chosenId,
+    name: chosenId,
+    provider: detectProviderForModel(chosenId)
+  };
 
-    if (query === null || query === false) {
-      console.log(chalk.dim('(Отменено)\n'));
-      return;
-    }
-
-    const trimmedQuery = query.trim();
-    if (!trimmedQuery) {
-      return;
-    }
-
-    const searchSpinner = ora({
-      text: chalk.dim(`Поиск "${trimmedQuery}"...`),
-      color: 'cyan'
-    }).start();
-
-    const qLower = trimmedQuery.toLowerCase();
-    const searchResults = [];
-
-    // Поиск по моделям Google AI Studio (если есть ключ)
-    if (googleKey) {
-      try {
-        const gModels = await listGoogleModels(googleKey);
-        for (const gId of gModels) {
-          if (gId.toLowerCase().includes(qLower)) {
-            searchResults.push({
-              id: gId,
-              name: gId,
-              provider: 'google'
-            });
-          }
-        }
-      } catch {}
-    }
-
-    // Поиск по каталогу OpenRouter
-    try {
-      const orModels = await searchOpenRouterModels(trimmedQuery);
-      for (const m of orModels) {
-        searchResults.push({
-          id: m.id,
-          name: m.name || m.id,
-          provider: 'openrouter'
-        });
-      }
-    } catch {}
-
-    searchSpinner.stop();
-
-    const limitedResults = searchResults.slice(0, 20);
-    const searchChoices = limitedResults.map(item => {
-      const pTitle = getProvider(item.provider).title;
-      return {
-        name: `${item.name} ${chalk.dim(`(${pTitle})`)}`,
-        value: item
-      };
-    });
-
-    if (searchChoices.length > 0) {
-      searchChoices.push(new Separator());
-    }
-
-    const customProvider = detectProviderForModel(trimmedQuery);
-    searchChoices.push({
-      name: `Использовать «${trimmedQuery}» как ID модели`,
-      value: {
-        id: trimmedQuery,
-        name: trimmedQuery,
-        provider: customProvider
-      }
-    });
-
-    const chosenSearchItem = await select({
-      message: `Результаты поиска для "${trimmedQuery}":`,
-      choices: searchChoices
-    });
-
-    if (!chosenSearchItem) {
-      console.log(chalk.dim('(Отменено)\n'));
-      return;
-    }
-
-    await applyModelSelection(chosenSearchItem.id, chosenSearchItem.provider, chosenSearchItem.name, session);
-    return;
-  }
-
-  // Выбран пункт из основного списка
-  const selectedItem = modelList.find(m => m.id === chosenId);
-  if (selectedItem) {
-    await applyModelSelection(selectedItem.id, selectedItem.provider, selectedItem.name, session);
-  }
+  await applyModelSelection(selectedItem.id, selectedItem.provider, selectedItem.name, session);
 }
 
 /**

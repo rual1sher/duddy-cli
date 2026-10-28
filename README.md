@@ -79,14 +79,13 @@ Duddy умеет напрямую взаимодействовать с файл
 Duddy поддерживает двух основных провайдеров:
 
 * **OpenRouter** (по умолчанию):
-  * Доступ к сотням моделей: бесплатные (`openrouter/free`, `google/gemma-4-31b-it:free`, `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free`) и коммерческие (Claude Sonnet 4.6, GPT-4.1, DeepSeek V3).
+  * Доступ к каталогу моделей (`openrouter/free`, Claude, GPT, Gemini, DeepSeek, Llama и др.).
   * Авторизация через браузер (OAuth) или ключ с [openrouter.ai/keys](https://openrouter.ai/keys).
   * Переменная окружения: `OPENROUTER_API_KEY`.
 
 * **Google AI Studio (Gemini API напрямую)**:
-  * Прямой OpenAI-совместимый эндпоинт к моделям Google (`gemini-3.8-flash` и др.) с окном контекста до 1 000 000 токенов.
+  * Прямой OpenAI-совместимый эндпоинт к моделям Google (Gemini, Gemma) с окном контекста до 1 000 000 токенов.
   * Быстрый вход командой `/login google` — утилита откроет [aistudio.google.com/apikey](https://aistudio.google.com/apikey), где ключ создаётся кнопкой «Create API key».
-  * Щедрый бесплатный тариф с лимитами запросов.
   * Переменные окружения: `GEMINI_API_KEY` (или `GOOGLE_API_KEY`).
 
 ---
@@ -97,7 +96,7 @@ Duddy поддерживает двух основных провайдеров:
 
 | Команда | Описание |
 | :--- | :--- |
-| `/model` | Удобное переключение между популярными моделями и поиск по каталогу |
+| `/model` | Список моделей ваших провайдеров с поиском |
 | `/effort` | Уровень рассуждений модели: low / medium / high / auto |
 | `/login` | Авторизация в OpenRouter или Google AI Studio (браузер / API-ключ) |
 | `/clear` | Очистить контекст диалога и начать с чистого листа |

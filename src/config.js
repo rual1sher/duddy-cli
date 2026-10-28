@@ -32,6 +32,7 @@ const DEFAULT_CONFIG = {
   apiKey: '',
   googleApiKey: '',
   model: 'openrouter/free',
+  models: {},
   reasoningEffort: 'auto',
   temperature: 0.4
 };
@@ -55,7 +56,11 @@ export function loadConfig() {
       if ('systemPrompt' in parsed) {
         delete parsed.systemPrompt;
       }
-      return { ...DEFAULT_CONFIG, ...parsed };
+      return {
+        ...DEFAULT_CONFIG,
+        ...parsed,
+        models: { ...DEFAULT_CONFIG.models, ...(parsed.models || {}) }
+      };
     }
   } catch (err) {
     // If parse error, fallback to defaults

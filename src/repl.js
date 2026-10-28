@@ -2,6 +2,7 @@ import readline from 'node:readline';
 import chalk from 'chalk';
 import { printBanner } from './banner.js';
 import { fetchKeyInfo, getModelContextLength } from './api.js';
+import { findModel } from './catalog.js';
 import { runAgentTurn, MAX_HISTORY_TURNS } from './agent.js';
 import { createPlainRenderer } from './plainRenderer.js';
 import { getProvider } from './providers.js';
@@ -316,9 +317,14 @@ export async function startRepl(session) {
   session.lastRoutedModel = session.lastRoutedModel || '';
   session.reasoningEffort = session.reasoningEffort || 'auto';
 
-  getModelContextLength(session.model, session.provider, session.apiKey).then(len => {
-    session.contextLength = len;
-  }).catch(() => {});
+  const initialCachedLen = findModel(session.model)?.contextLength;
+  if (initialCachedLen) {
+    session.contextLength = initialCachedLen;
+  } else {
+    getModelContextLength(session.model, session.provider, session.apiKey).then(len => {
+      session.contextLength = len;
+    }).catch(() => {});
+  }
 
   if (session.apiKey && !session.keyInfo) {
     fetchKeyInfo(session.apiKey, session.provider).then(info => {
@@ -381,9 +387,14 @@ export async function startRepl(session) {
         case 'm':
           await handleModelCommand(args, session);
           session.lastRoutedModel = '';
-          getModelContextLength(session.model, session.provider, session.apiKey).then(len => {
-            session.contextLength = len;
-          }).catch(() => {});
+          const selectedCachedLen = findModel(session.model)?.contextLength;
+          if (selectedCachedLen) {
+            session.contextLength = selectedCachedLen;
+          } else {
+            getModelContextLength(session.model, session.provider, session.apiKey).then(len => {
+              session.contextLength = len;
+            }).catch(() => {});
+          }
           break;
         case 'effort':
         case 'think':
@@ -503,31 +514,51 @@ export async function startRepl(session) {
       } else {
         console.log();
         console.error(chalk.red(`❌ Error: ${err.message}`));
-        if (!session.apiKey) {
-          console.log(chalk.yellow('💡 Подсказка: Введите API ключ с помощью команды /login'));
-        } else if (session.provider === 'google') {
-          const msg = (err.message || '').toLowerCase();
-          if (msg.includes('503') || msg.includes('high demand') || err.code === 'FIRST_CHUNK_TIMEOUT') {
-            console.log(chalk.yellow('💡 Модель перегружена у Google. Попробуйте /model gemini-3.5-flash (быстрая и стабильная)'));
-          } else if (msg.includes('429')) {
-            console.log(chalk.yellow('💡 Подсказка: Для этой модели исчерпан бесплатный лимит Google AI Studio — подождите или выберите другую через /model'));
-          } else if (msg.includes('401') || msg.includes('403') || (msg.includes('400') && (msg.includes('api key') || msg.includes('api_key')))) {
-            console.log(chalk.yellow('💡 Подсказка: Неверный ключ Google AI Studio — /login'));
-          } else if (msg.includes('404') || msg.includes('not found') || msg.includes('unavailable')) {
-            console.log(chalk.yellow(`💡 Подсказка: Модель "${session.model}" временно недоступна. Выберите другую через /model`));
-          }
-        } else {
-          if (err.code === 'FIRST_CHUNK_TIMEOUT') {
-            console.log(chalk.yellow('💡 Бесплатная модель не ответила. Повторите запрос или выберите другую через /model'));
-          } else if (err.message.includes('401') || err.message.includes('Unauthorized')) {
-            console.log(chalk.yellow('💡 Подсказка: Неверный API ключ. Введите актуальный ключ через /login'));
-          } else if (err.message.includes('402') || err.message.includes('credits')) {
-            console.log(chalk.yellow('💡 Подсказка: Для этой коммерческой модели нужен баланс на openrouter.ai/credits или выберите бесплатную модель через /model'));
-          } else if (err.message.includes('free-models-per-day') || err.message.includes('429')) {
-            console.log(chalk.yellow('💡 Подсказка: Дневной лимит бесплатных запросов OpenRouter исчерпан (50/день). Создайте новый ключ на openrouter.ai, дождитесь сброса или пополните баланс на $1.'));
-          } else if (err.message.includes('404') || err.message.includes('No endpoints found') || err.message.includes('unavailable')) {
-            console.log(chalk.yellow(`💡 Подсказка: Модель "${session.model}" временно недоступна. Выберите другую через /model`));
-          }
+        const msg = (err.message || '').toLowerCase();
+        const code = err.code || '';
+        const status = err.status || err.statusCode || 0;
+
+        if (
+          status === 503 ||
+          msg.includes('503') ||
+          msg.includes('high demand') ||
+          code === 'FIRST_CHUNK_TIMEOUT'
+        ) {
+          console.log(chalk.yellow('💡 Модель сейчас не отвечает или перегружена — повторите позже или выберите другую через /model'));
+        } else if (
+          status === 429 ||
+          msg.includes('429') ||
+          msg.includes('free-models-per-day') ||
+          msg.includes('rate limit')
+        ) {
+          console.log(chalk.yellow('💡 Превышен лимит запросов для этой модели — подождите или выберите другую через /model'));
+        } else if (
+          !session.apiKey ||
+          status === 401 ||
+          status === 403 ||
+          msg.includes('401') ||
+          msg.includes('403') ||
+          msg.includes('unauthorized') ||
+          msg.includes('неверный ключ') ||
+          msg.includes('invalid api key') ||
+          (status === 400 && (msg.includes('api key') || msg.includes('api_key') || msg.includes('ключ')))
+        ) {
+          console.log(chalk.yellow('💡 Ключ не подошёл — выполните /login'));
+        } else if (
+          status === 402 ||
+          msg.includes('402') ||
+          msg.includes('credits') ||
+          msg.includes('insufficient_quota')
+        ) {
+          console.log(chalk.yellow('💡 На балансе OpenRouter недостаточно средств для этой модели — /model'));
+        } else if (
+          status === 404 ||
+          msg.includes('404') ||
+          msg.includes('not found') ||
+          msg.includes('no endpoints found') ||
+          msg.includes('unavailable')
+        ) {
+          console.log(chalk.yellow('💡 Модель недоступна — выберите другую через /model'));
         }
         console.log();
       }

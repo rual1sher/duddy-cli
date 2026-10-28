@@ -42,7 +42,7 @@ ${chalk.bold('Options:')}
   ${chalk.yellow('-v, --version')} Show version
 
 ${chalk.bold('Interactive Commands:')}
-  ${chalk.yellow('/model')}   Switch AI models (Gemini, GPT, Claude, Llama, Free...)
+  ${chalk.yellow('/model')}   Список моделей ваших провайдеров с поиском
   ${chalk.yellow('/effort')}  Set reasoning level (auto, low, medium, high)
   ${chalk.yellow('/login')}   Login: OpenRouter or Google AI Studio
   ${chalk.yellow('/clear')}   Clear conversation context
@@ -70,7 +70,7 @@ ${chalk.bold('Interactive Commands:')}
   const session = {
     provider,
     apiKey,
-    model: config.model || (provider === 'google' ? 'gemini-3.5-flash' : 'openrouter/free'),
+    model: config.model || config.models?.[provider] || (provider === 'google' ? 'gemini-3.5-flash' : 'openrouter/free'),
     reasoningEffort: config.reasoningEffort || 'auto',
     temperature: config.temperature ?? 0.4,
     systemPrompt: DEFAULT_SYSTEM_PROMPT,

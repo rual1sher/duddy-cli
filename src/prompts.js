@@ -1,5 +1,6 @@
 import {
   select as inqSelect,
+  search as inqSearch,
   input as inqInput,
   password as inqPassword,
   confirm as inqConfirm,
@@ -84,6 +85,25 @@ export function select(config, context) {
     }
   };
   return withEsc(inqSelect, { ...config, theme }, context);
+}
+
+/**
+ * Search prompt with Esc-to-exit and custom Russian help tip
+ *
+ * @param {object} config - Inquirer search config
+ * @param {object} [context] - Execution context
+ * @returns {Promise<any>}
+ */
+export function search(config, context) {
+  const theme = {
+    ...DEFAULT_SELECT_THEME,
+    ...config.theme,
+    style: {
+      ...DEFAULT_SELECT_THEME.style,
+      ...config.theme?.style
+    }
+  };
+  return withEsc(inqSearch, { ...config, theme }, context);
 }
 
 /**
