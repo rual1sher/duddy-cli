@@ -2,7 +2,29 @@
  * @fileoverview Каталог моделей из API OpenRouter и Google AI Studio
  */
 
-import { getProviderKey } from './providers.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { getProvider, getProviderKey } from './providers.js';
+
+const STATUS_FILE = path.join(os.homedir(), '.config', 'duddy', 'models-status.json');
+// Plan, region and retirement rarely change, so a weekly re-check is enough
+const STATUS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// Fast refusals (no quota, retired, region) come back in under a second;
+// anything slower is load, which is temporary and must not hide a model
+const PROBE_TIMEOUT_MS = 8000;
+
+/**
+ * Причины, по которым модель скрыта из списка: она не заработает с этим ключом,
+ * пока не изменится тариф, регион или сама модель
+ */
+export const UNAVAILABLE_REASONS = {
+  plan: 'недоступна на вашем тарифе',
+  region: 'недоступна в вашем регионе',
+  retired: 'отключена провайдером',
+  policy: 'запрещена настройками приватности OpenRouter',
+  restricted: 'доступ ограничен провайдером'
+};
 
 const GOOGLE_EXCLUDED_SUBSTRINGS = [
   'tts',
@@ -27,6 +49,172 @@ const catalogCache = {
   google: null,
   openrouter: null
 };
+
+function readStatus() {
+  try {
+    const data = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf8'));
+    return { models: data.models || {}, probedAt: data.probedAt || {} };
+  } catch {
+    return { models: {}, probedAt: {} };
+  }
+}
+
+function writeStatus(status) {
+  try {
+    fs.mkdirSync(path.dirname(STATUS_FILE), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(STATUS_FILE, JSON.stringify(status, null, 2), { encoding: 'utf8', mode: 0o600 });
+  } catch {
+    // The list still works without the cache, it is just re-checked next time
+  }
+}
+
+/**
+ * Определить по ответу провайдера, что модель недоступна для этого ключа надолго.
+ * Временные ошибки (перегрузка, лимит в минуту, 5xx, таймаут) возвращают null.
+ *
+ * @param {number} status - HTTP-статус
+ * @param {string} message - Текст ошибки
+ * @returns {keyof UNAVAILABLE_REASONS | null}
+ */
+export function classifyModelError(status, message = '') {
+  const msg = String(message).toLowerCase();
+
+  // Errors about the key or the request itself say nothing about the model
+  if (msg.includes('api key') || msg.includes('api_key') || msg.includes('flagged') || msg.includes('moderation')) {
+    return null;
+  }
+  if (status === 402 || msg.includes('insufficient credits') || msg.includes('requires more credits')) {
+    return 'plan';
+  }
+  // Google: "...free_tier_requests, limit: 0..." means the model is not on the free tier at all
+  if (msg.includes('free_tier') && msg.includes('limit: 0')) {
+    return 'plan';
+  }
+  if (msg.includes('location is not supported') || msg.includes('not available in your region') ||
+      msg.includes('not available in your country') || msg.includes('unsupported_country')) {
+    return 'region';
+  }
+  if (msg.includes('data policy')) {
+    return 'policy';
+  }
+  if (status === 404 && (msg.includes('no longer available') || msg.includes('not found') || msg.includes('does not exist'))) {
+    return 'retired';
+  }
+  if (status === 403) {
+    return 'restricted';
+  }
+  return null;
+}
+
+/**
+ * Причина, по которой модель скрыта, или null
+ *
+ * @param {string} provider - Идентификатор провайдера
+ * @param {string} id - Идентификатор модели
+ * @returns {string|null}
+ */
+export function getUnavailableReason(provider, id) {
+  const entry = readStatus().models[`${provider}:${id}`];
+  if (!entry || Date.now() - entry.at > STATUS_TTL_MS) return null;
+  return entry.reason;
+}
+
+/**
+ * Запомнить, что модель недоступна, и убрать её из текущего списка
+ *
+ * @param {string} provider - Идентификатор провайдера
+ * @param {string} id - Идентификатор модели
+ * @param {string} reason - Ключ из UNAVAILABLE_REASONS
+ */
+export function markModelUnavailable(provider, id, reason) {
+  const status = readStatus();
+  status.models[`${provider}:${id}`] = { reason, at: Date.now() };
+  writeStatus(status);
+  if (Array.isArray(catalogCache[provider])) {
+    catalogCache[provider] = catalogCache[provider].filter(m => m.id !== id);
+  }
+}
+
+/**
+ * Разобрать ошибку запроса к модели; если она означает постоянную недоступность —
+ * скрыть модель из списка
+ *
+ * @param {string} provider - Идентификатор провайдера
+ * @param {string} id - Идентификатор модели
+ * @param {Error & { status?: number }} err - Ошибка запроса
+ * @returns {string|null} Ключ причины или null для временных ошибок
+ */
+export function noteModelError(provider, id, err) {
+  const reason = classifyModelError(err?.status, err?.message);
+  if (reason) {
+    markModelUnavailable(provider, id, reason);
+  }
+  return reason;
+}
+
+/**
+ * Проверить модель минимальным запросом
+ *
+ * @returns {Promise<string|null>} Причина недоступности или null
+ */
+async function probeModel(provider, id, key) {
+  const { baseURL, headers } = getProvider(provider);
+  try {
+    const res = await fetch(`${baseURL.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: { ...headers, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: id, messages: [{ role: 'user', content: 'hi' }], max_tokens: 5 }),
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
+    });
+    if (res.ok) return null;
+    return classifyModelError(res.status, await res.text());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Проверить все модели провайдера параллельно и сохранить результат
+ */
+async function probeProvider(provider, models, key) {
+  const reasons = await Promise.all(models.map(m => probeModel(provider, m.id, key)));
+  const status = readStatus();
+  models.forEach((m, i) => {
+    const k = `${provider}:${m.id}`;
+    if (reasons[i]) {
+      status.models[k] = { reason: reasons[i], at: Date.now() };
+    } else {
+      delete status.models[k];
+    }
+  });
+  status.probedAt[provider] = Date.now();
+  writeStatus(status);
+}
+
+function needsProbe(provider) {
+  const at = readStatus().probedAt[provider];
+  return !at || Date.now() - at > STATUS_TTL_MS;
+}
+
+/**
+ * Ключ OpenRouter без средств может вызывать только бесплатные модели
+ *
+ * @param {string} key - API-ключ OpenRouter
+ * @returns {Promise<boolean>}
+ */
+async function isOpenRouterFreeOnly(key) {
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/credits', {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!res.ok) return false;
+    const { data } = await res.json();
+    return (Number(data?.total_credits) || 0) - (Number(data?.total_usage) || 0) <= 0;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Очистить кэш каталога моделей
@@ -266,7 +454,8 @@ async function fetchOpenRouterModels() {
       id: m.id,
       name: m.name || m.id,
       provider: 'openrouter',
-      contextLength: m.context_length
+      contextLength: m.context_length,
+      free: Number(m.pricing?.prompt) === 0 && Number(m.pricing?.completion) === 0
     });
   }
 
@@ -280,7 +469,8 @@ async function fetchOpenRouterModels() {
       id: 'openrouter/free',
       name: 'OpenRouter Free',
       provider: 'openrouter',
-      contextLength: 200000
+      contextLength: 200000,
+      free: true
     });
   }
 
@@ -311,11 +501,21 @@ export async function listModels(config = {}) {
     }
 
     let models = [];
+    let probe = false;
     if (provider === 'google') {
       models = await fetchGoogleModels(googleKey);
+      probe = true;
     } else if (provider === 'openrouter') {
-      models = await fetchOpenRouterModels();
+      const [all, freeOnly] = await Promise.all([fetchOpenRouterModels(), isOpenRouterFreeOnly(openrouterKey)]);
+      models = freeOnly ? all.filter(m => m.free) : all;
+      // Probing hundreds of paid models is too costly; they are hidden on the first real error instead
+      probe = freeOnly;
     }
+
+    if (probe && needsProbe(provider)) {
+      await probeProvider(provider, models, provider === 'google' ? googleKey : openrouterKey);
+    }
+    models = models.filter(m => !getUnavailableReason(provider, m.id));
 
     catalogCache[provider] = models;
     return { provider, models };
