@@ -4,27 +4,28 @@ Duddy — это консольный AI-ассистент на Node.js, раб
 
 ## 📦 Установка
 
-### Вариант 1. Глобальная установка через npm (рекомендуется)
+### В одну команду (через curl)
 ```bash
-npm install -g duddy
+curl -fsSL https://raw.githubusercontent.com/rual1sher/duddy-cli/master/install.sh | bash
 ```
 
-### Вариант 2. Запуск без установки (через npx)
+### Или вручную через Git
 ```bash
-npx duddy
+git clone https://github.com/rual1sher/duddy-cli.git
+cd duddy-cli
+./install.sh
 ```
 
-### Вариант 3. Из исходного кода (для разработки)
-```bash
-git clone <URL_РЕПОЗИТОРИЯ>
-cd duddy
-npm install
-npm link
-```
+*(Скрипт сам установит зависимости и создаст команду `duddy` в `~/.local/bin`)*.
 
 ---
 
-## 🚀 Использование
+## 🔄 Обновление
+
+Просто выполни команду установки повторно или внутри папки проекта:
+```bash
+git pull && ./install.sh
+```
 
 ### 1. Интерактивный режим (как agy / claude)
 Запусти в терминале:
@@ -54,15 +55,6 @@ Duddy умеет напрямую взаимодействовать с файл
 * **Точечное редактирование:** `duddy "замени в index.js порт 3000 на 8080"`
 * **Безопасность:** перед записью или изменением файлов Duddy запрашивает подтверждение `[Y/n]`.
 
----
-
-## 🔄 Обновление
-
-```bash
-npm update -g duddy
-# или
-npm i -g duddy@latest
-```
 
 ---
 
