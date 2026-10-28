@@ -131,7 +131,9 @@ export function markModelUnavailable(provider, id, reason) {
   status.models[`${provider}:${id}`] = { reason, at: Date.now() };
   writeStatus(status);
   if (Array.isArray(catalogCache[provider])) {
-    catalogCache[provider] = catalogCache[provider].filter(m => m.id !== id);
+    for (const m of catalogCache[provider]) {
+      if (m.id === id) m.unavailable = reason;
+    }
   }
 }
 
@@ -502,20 +504,28 @@ export async function listModels(config = {}) {
 
     let models = [];
     let probe = false;
+    let freeOnlyKey = false;
     if (provider === 'google') {
       models = await fetchGoogleModels(googleKey);
       probe = true;
     } else if (provider === 'openrouter') {
       const [all, freeOnly] = await Promise.all([fetchOpenRouterModels(), isOpenRouterFreeOnly(openrouterKey)]);
-      models = freeOnly ? all.filter(m => m.free) : all;
-      // Probing hundreds of paid models is too costly; they are hidden on the first real error instead
+      freeOnlyKey = freeOnly;
+      models = all;
+      // Probing hundreds of paid models is too costly; they are marked on the first real error instead
       probe = freeOnly;
     }
 
     if (probe && needsProbe(provider)) {
-      await probeProvider(provider, models, provider === 'google' ? googleKey : openrouterKey);
+      const candidates = freeOnlyKey ? models.filter(m => m.free) : models;
+      await probeProvider(provider, candidates, provider === 'google' ? googleKey : openrouterKey);
     }
-    models = models.filter(m => !getUnavailableReason(provider, m.id));
+    // Keep unusable models in the list (shown disabled), working ones first
+    models = models.map(m => ({
+      ...m,
+      unavailable: provider === 'openrouter' && freeOnlyKey && !m.free ? 'plan' : getUnavailableReason(provider, m.id)
+    }));
+    models = [...models.filter(m => !m.unavailable), ...models.filter(m => m.unavailable)];
 
     catalogCache[provider] = models;
     return { provider, models };

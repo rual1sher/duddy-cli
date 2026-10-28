@@ -5,7 +5,7 @@
 import chalk from 'chalk';
 import { loadConfig, saveConfig } from './config.js';
 import { getProvider, getProviderKey, detectProviderForModel } from './providers.js';
-import { findModel, validateGoogleKey, clearCatalogCache } from './catalog.js';
+import { findModel, validateGoogleKey, clearCatalogCache, getUnavailableReason, UNAVAILABLE_REASONS } from './catalog.js';
 import { fetchKeyInfo, getModelContextLength } from './api.js';
 import { MAX_HISTORY_TURNS } from './history.js';
 
@@ -30,6 +30,10 @@ export const AVAILABLE_COMMANDS = [
 export async function selectModel(session, modelId, providerId) {
   const provId = providerId || detectProviderForModel(modelId);
   const provider = getProvider(provId);
+  const unavailable = findModel(modelId)?.unavailable || getUnavailableReason(provider.id, modelId);
+  if (unavailable) {
+    return { ok: false, message: `Модель ${modelId} ${UNAVAILABLE_REASONS[unavailable]} — выберите другую` };
+  }
   const config = loadConfig();
   const key = getProviderKey(provider.id, config) || (session.provider === provider.id ? session.apiKey : '');
 

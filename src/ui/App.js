@@ -24,7 +24,7 @@ import {
   usageLines,
   helpLines
 } from '../session-actions.js';
-import { listModels } from '../catalog.js';
+import { listModels, UNAVAILABLE_REASONS } from '../catalog.js';
 import { loadConfig } from '../config.js';
 import { detectProviderForModel, getProviderKey } from '../providers.js';
 import { fetchKeyInfo, getModelContextLength } from '../api.js';
@@ -437,7 +437,9 @@ export function App({ session }) {
           hint: m.id,
           value: { id: m.id, provider: m.provider },
           current: m.id === session.model,
-          group: hasBoth ? (m.provider === 'google' ? 'Google' : 'OpenRouter') : undefined
+          group: hasBoth ? (m.provider === 'google' ? 'Google' : 'OpenRouter') : undefined,
+          disabled: Boolean(m.unavailable),
+          reason: m.unavailable ? UNAVAILABLE_REASONS[m.unavailable] : undefined
         }));
 
         setOverlay({

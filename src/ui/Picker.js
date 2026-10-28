@@ -65,6 +65,9 @@ export function Picker({
     }
 
     if (key.return) {
+      if (filtered[selectedIndex]?.disabled) {
+        return;
+      }
       if (filtered[selectedIndex] && typeof onSelect === 'function') {
         onSelect(filtered[selectedIndex].value);
       }
@@ -124,7 +127,8 @@ export function Picker({
   const remainingAbove = start;
   const remainingBelow = filtered.length - end;
 
-  const hintLine = `↑↓ выбор · Enter · Esc — отмена${searchable ? ' · ввод — поиск' : ''}`;
+  const hasDisabled = items.some(it => it.disabled);
+  const hintLine = `↑↓ выбор · Enter · Esc — отмена${searchable ? ' · ввод — поиск' : ''}${hasDisabled ? ' · серые недоступны' : ''}`;
 
   return h(
     Box,
@@ -162,23 +166,26 @@ export function Picker({
           const groupPrefix = item.group
             ? h(Text, { color: '#64748b', dimColor: true }, `${item.group} · `)
             : null;
-          const label = h(
-            Text,
-            { bold: isSelected, color: isSelected ? '#38bdf8' : '#f8fafc' },
-            item.label
-          );
+          const label = item.disabled
+            ? h(Text, { color: '#475569', bold: isSelected }, item.label)
+            : h(Text, { bold: isSelected, color: isSelected ? '#38bdf8' : '#f8fafc' }, item.label);
           const hint = item.hint
-            ? h(Text, { color: '#64748b', dimColor: true }, `  ${item.hint}`)
+            ? h(Text, { color: item.disabled ? '#334155' : '#64748b', dimColor: true }, `  ${item.hint}`)
+            : null;
+          const reason = item.disabled && item.reason
+            ? h(Text, { color: '#475569' }, `  · ${item.reason}`)
             : null;
 
+          // One Text with nested parts so a long row is cut with "…" instead of wrapping
           return h(
-            Box,
-            { key: `${item.label}-${realIndex}`, flexDirection: 'row' },
+            Text,
+            { key: `${item.label}-${realIndex}`, wrap: 'truncate-end' },
             cursor,
             check,
             groupPrefix,
             label,
-            hint
+            hint,
+            reason
           );
         }),
     remainingBelow > 0
