@@ -2,8 +2,9 @@
 
 import { loadConfig, getApiKey } from '../src/config.js';
 import { startRepl } from '../src/repl.js';
-import { streamChatCompletion } from '../src/api.js';
+import { streamChatCompletion, getModelContextLength } from '../src/api.js';
 import { AnimatedTerminalRenderer } from '../src/formatter.js';
+import { AGENT_TOOLS, executeTool } from '../src/tools.js';
 import chalk from 'chalk';
 import ora from 'ora';
 
@@ -41,8 +42,6 @@ ${chalk.bold('Usage:')}
 
 ${chalk.bold('Interactive Commands:')}
   ${chalk.yellow('/model')}   Switch AI models (Gemini, GPT, Claude, Llama, Free...)
-  ${chalk.yellow('/copy')}    Copy last generated code directly to clipboard (wl-copy)
-  ${chalk.yellow('/save')}    Save last code to a file (e.g. /save index.html)
   ${chalk.yellow('/login')}   Configure OpenRouter API Key
   ${chalk.yellow('/clear')}   Clear conversation context
   ${chalk.yellow('/system')}  Change AI personality / prompt
@@ -76,36 +75,103 @@ ${chalk.bold('Interactive Commands:')}
     }
 
     const startTime = Date.now();
-    const spinner = ora({
+    let spinner = ora({
       text: chalk.bold.hex('#38bdf8')('Duddy думает... ') + chalk.hex('#64748b')(`(${session.model})`),
       color: 'cyan',
       spinner: 'dots12'
     }).start();
 
-    const renderer = new AnimatedTerminalRenderer();
-    let startedStreaming = false;
+    const messagesToSend = [
+      { role: 'system', content: session.systemPrompt },
+      { role: 'user', content: combinedContent }
+    ];
+
+    let lastTurnUsage = null;
+    const MAX_TOOL_TURNS = 10;
+    let turn = 0;
 
     try {
-      await streamChatCompletion({
-        apiKey: session.apiKey,
-        model: session.model,
-        messages: [
-          { role: 'system', content: session.systemPrompt },
-          { role: 'user', content: combinedContent }
-        ],
-        temperature: session.temperature,
-        onChunk: (chunk) => {
-          if (!startedStreaming) {
-            spinner.stop();
-            process.stdout.write(chalk.hex('#334155')('\n╭─ ') + chalk.bold.hex('#38bdf8')('✦ Duddy') + chalk.hex('#475569')(` [${session.model}] `) + chalk.hex('#334155')('─'.repeat(26)) + '\n');
-            startedStreaming = true;
+      while (turn < MAX_TOOL_TURNS) {
+        turn++;
+        let startedStreaming = false;
+        const renderer = new AnimatedTerminalRenderer();
+
+        const { content, toolCalls, usage } = await streamChatCompletion({
+          apiKey: session.apiKey,
+          model: session.model,
+          messages: messagesToSend,
+          tools: AGENT_TOOLS,
+          temperature: session.temperature,
+          onReasoning: () => {
+            if (!startedStreaming && spinner.isSpinning) {
+              spinner.text = chalk.bold.hex('#38bdf8')('Duddy рассуждает... ') + chalk.hex('#64748b')(`(${session.model})`);
+            }
+          },
+          onChunk: (chunk) => {
+            if (!startedStreaming) {
+              if (!chunk.trim()) return;
+              spinner.stop();
+              process.stdout.write(chalk.hex('#334155')('\n╭─ ') + chalk.bold.hex('#38bdf8')('✦ Duddy') + chalk.hex('#475569')(` [${session.model}] `) + chalk.hex('#334155')('─'.repeat(26)) + '\n');
+              startedStreaming = true;
+            }
+            renderer.push(chunk);
           }
-          renderer.push(chunk);
+        });
+
+        if (usage) {
+          lastTurnUsage = usage;
         }
-      });
-      await renderer.flush();
+
+        if (startedStreaming) {
+          await renderer.flush();
+        }
+
+        if (toolCalls && toolCalls.length > 0) {
+          spinner.stop();
+
+          messagesToSend.push({
+            role: 'assistant',
+            content: content || null,
+            tool_calls: toolCalls
+          });
+
+          for (const call of toolCalls) {
+            const funcName = call.function.name;
+            let funcArgs = {};
+            try {
+              funcArgs = JSON.parse(call.function.arguments || '{}');
+            } catch (err) {
+              funcArgs = {};
+            }
+
+            console.log(chalk.hex('#38bdf8')(`\n⚙️  [Инструмент: ${chalk.bold(funcName)}]`));
+            const toolResult = await executeTool(funcName, funcArgs);
+
+            messagesToSend.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              name: funcName,
+              content: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult)
+            });
+          }
+
+          spinner = ora({
+            text: chalk.bold.hex('#38bdf8')('Duddy анализирует результат... ') + chalk.hex('#64748b')(`(${session.model})`),
+            color: 'cyan',
+            spinner: 'dots12'
+          }).start();
+
+          continue;
+        }
+
+        break;
+      }
+
+      spinner.stop();
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(chalk.hex('#334155')('╰─ ') + chalk.hex('#10b981')('✔ Готово') + chalk.hex('#64748b')(` · ${elapsed}s\n`));
+      const tokFormatted = (lastTurnUsage?.total_tokens ?? 0).toLocaleString('ru-RU').replace(/\s/g, ' ');
+      const tokenInfo = lastTurnUsage?.total_tokens ? ` · ${tokFormatted} tok` : '';
+      console.log(chalk.hex('#334155')('╰─ ') + chalk.hex('#10b981')('✔ Готово') + chalk.hex('#64748b')(` · ${elapsed}s${tokenInfo}\n`));
     } catch (err) {
       spinner.stop();
       console.error(chalk.red(`\nError: ${err.message}`));

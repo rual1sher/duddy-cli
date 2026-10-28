@@ -3,17 +3,14 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { saveConfig, DEFAULT_SYSTEM_PROMPT } from './config.js';
 import { printBanner } from './banner.js';
-import { copyToClipboard, saveCodeToFile } from './clipboard.js';
 import { MODEL_CATEGORIES, getAllCuratedModels, searchOpenRouterModels } from './models.js';
 import { loginViaBrowser } from './auth.js';
+import { fetchKeyInfo, getModelContextLength } from './api.js';
 
 export const AVAILABLE_COMMANDS = [
   { cmd: '/model', desc: 'Сменить AI модель (Gemini, GPT, Claude, Llama, Free...)' },
-  { cmd: '/copy', desc: 'Скопировать последний код в буфер обмена (wl-copy)' },
-  { cmd: '/save [файл]', desc: 'Сохранить код в файл (например: /save index.html)' },
   { cmd: '/login', desc: 'Авторизация в OpenRouter (через браузер OAuth или ключ)' },
   { cmd: '/clear', desc: 'Очистить историю диалога и экран' },
-  { cmd: '/system', desc: 'Сменить роль / характер ассистента' },
   { cmd: '/usage', desc: 'Показать статистику текущей сессии' },
   { cmd: '/help', desc: 'Показать список всех команд' },
   { cmd: '/exit', desc: 'Выйти из Duddy (или /quit)' }
@@ -335,7 +332,10 @@ export function handleHelpCommand() {
   for (const cmd of AVAILABLE_COMMANDS) {
     console.log(`  ${chalk.yellow(cmd.cmd.padEnd(16))} ${chalk.dim('—')} ${cmd.desc}`);
   }
-  console.log(chalk.dim('\n💡 Подсказка: нажми Tab после ввода / для автодополнения команд.\n'));
+  console.log(chalk.dim('\n💡 Подсказка: нажми Tab после ввода / для автодополнения команд.'));
+  console.log(chalk.bold.hex('#38bdf8')('\n🛠️  Файловые операции (AI Agent):'));
+  console.log(chalk.dim('  Duddy умеет создавать папки, файлы, читать и точечно изменять код в файлах.'));
+  console.log(chalk.dim('  Просто напишите в чат: "создай папку src/components", "прочитай package.json" и т.д.\n'));
 }
 
 export function handleClearCommand(session) {
@@ -349,14 +349,93 @@ export function handleClearCommand(session) {
   console.log(chalk.green('✓ Экран и контекст диалога полностью очищены. Начат новый диалог.\n'));
 }
 
-export function handleUsageCommand(session) {
-  const turns = session.messages.filter(m => m.role === 'user').length;
-  console.log(chalk.cyan('\n📊 Статистика текущей сессии:'));
-  console.log(`  Активная модель:  ${chalk.greenBright(session.model)}`);
-  console.log(`  Сообщений в чате: ${chalk.bold(turns)}`);
-  console.log(`  Размер истории:   ${chalk.bold(session.messages.length)} реплик`);
-  console.log();
+function makeProgressBar(percent, width = 16) {
+  const p = Math.min(100, Math.max(0, Math.round(percent)));
+  const filled = Math.round((p / 100) * width);
+  const empty = width - filled;
+
+  let color = chalk.hex('#10b981'); // green
+  if (p >= 80) color = chalk.hex('#ef4444'); // red
+  else if (p >= 50) color = chalk.hex('#f59e0b'); // yellow
+
+  return color('█'.repeat(filled)) + chalk.hex('#334155')('░'.repeat(empty)) + ' ' + color((p + '%').padStart(4));
 }
+
+function getTimeUntilMidnightUTC() {
+  const now = new Date();
+  const nextUTC = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+    0, 0, 0, 0
+  ));
+  const diffMs = nextUTC.getTime() - now.getTime();
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  return `${hours}ч ${mins}м`;
+}
+
+export async function handleUsageCommand(session) {
+  if (!session.contextLength) {
+    try {
+      session.contextLength = await getModelContextLength(session.model);
+    } catch {}
+  }
+
+  const turns = session.messages.filter(m => m.role === 'user').length;
+  const totalTokens = session.totalTokens ?? 0;
+  const lastTokens = session.lastUsage?.total_tokens ?? 0;
+  const maxContext = session.contextLength || 128000;
+  const remainingTokens = Math.max(0, maxContext - lastTokens);
+  const contextUsedPct = Math.min(100, Math.max(0, Math.round((lastTokens / maxContext) * 100)));
+
+  const historyCount = session.messages.length;
+  const maxHistory = 20;
+  const histPct = Math.round((historyCount / maxHistory) * 100);
+
+  console.log(chalk.bold.cyan('\n📊 Мониторинг лимитов и токенов (OpenRouter):'));
+  console.log();
+
+  // 1. Окно контекста активной модели (Context Window)
+  console.log(chalk.bold(`  🧠 Окно контекста активной модели (${chalk.hex('#38bdf8')(session.model)}):`));
+  console.log('  ' + makeProgressBar(contextUsedPct) + chalk.dim('  ·  ') +
+    chalk.hex('#94a3b8')(`${lastTokens.toLocaleString('ru-RU')} из ${maxContext.toLocaleString('ru-RU')} tok`) +
+    chalk.hex('#10b981')(` (${remainingTokens.toLocaleString('ru-RU')} свободно)`));
+  console.log(chalk.dim(`  ↳ Занято в текущем контексте: ${chalk.bold.hex('#f59e0b')(lastTokens.toLocaleString('ru-RU'))} токенов (${contextUsedPct}%)`));
+  console.log(chalk.dim(`  ↳ Осталось свободно в окне модели: ${chalk.bold.hex('#10b981')(remainingTokens.toLocaleString('ru-RU'))} токенов (${100 - contextUsedPct}%)\n`));
+
+  // 2. Дневной лимит бесплатных запросов (если есть)
+  if (session.keyInfo?.free_model_daily_requests) {
+    const { remaining, limit, used } = session.keyInfo.free_model_daily_requests;
+    const freePct = Math.round((used / limit) * 100);
+    const timeUntilReset = getTimeUntilMidnightUTC();
+    console.log(chalk.bold('  🌟 Дневной лимит бесплатных запросов (Daily Free):'));
+    console.log('  ' + makeProgressBar(freePct) + chalk.dim('  ·  ') + chalk.hex('#94a3b8')(`${used} из ${limit} запросов`) + chalk.hex('#10b981')(` (${remaining} осталось)`));
+    console.log(chalk.dim(`  ↳ Сбрасывается каждые сутки в 00:00 UTC (до сброса осталось: ${chalk.hex('#38bdf8')(timeUntilReset)})\n`));
+  }
+
+  // 3. Периодический расход аккаунта
+  const dailySpend = Number(session.keyInfo?.usage_daily || 0).toFixed(2);
+  const weeklySpend = Number(session.keyInfo?.usage_weekly || 0).toFixed(2);
+  const monthlySpend = Number(session.keyInfo?.usage_monthly || 0).toFixed(2);
+
+  if (session.keyInfo?.limit) {
+    const totalSpend = Number(session.keyInfo.usage || 0);
+    const keyLimit = Number(session.keyInfo.limit);
+    const limitPct = Math.round((totalSpend / keyLimit) * 100);
+    console.log(chalk.bold('  💳 Баланс и лимиты ключа:'));
+    console.log('  ' + makeProgressBar(limitPct) + chalk.dim('  ·  ') + chalk.hex('#94a3b8')(`$${totalSpend.toFixed(2)} из $${keyLimit.toFixed(2)} лимита`) + chalk.hex('#10b981')(` ($${Number(session.keyInfo.limit_remaining || 0).toFixed(2)} осталось)`));
+    console.log(`  День: ${chalk.hex('#38bdf8')(`$${dailySpend}`)} · Неделя: ${chalk.hex('#38bdf8')(`$${weeklySpend}`)} · Месяц: ${chalk.hex('#38bdf8')(`$${monthlySpend}`)}`);
+    console.log();
+  }
+
+  // 4. Буфер диалога и суммарный расход сессии
+  console.log(chalk.bold('  📦 Буфер памяти диалога (Context History):'));
+  console.log('  ' + makeProgressBar(histPct) + chalk.dim('  ·  ') + chalk.hex('#94a3b8')(`${historyCount} из ${maxHistory} сообщений в памяти диалога`));
+  console.log(chalk.dim(`  ↳ Запросов в текущем сеансе: ${chalk.bold(turns)}`));
+  console.log(chalk.dim(`  ↳ Всего токенов обработано за сессию (счётчик): ${chalk.hex('#f59e0b')(`${totalTokens.toLocaleString('ru-RU')} tok`)}\n`));
+}
+
 
 export async function handleSystemCommand(session) {
   const choice = await select({
@@ -403,51 +482,5 @@ export async function handleSystemCommand(session) {
     session.systemPrompt = choice;
     saveConfig({ systemPrompt: choice });
     console.log(chalk.green('✓ Роль ассистента успешно изменена!\n'));
-  }
-}
-
-export function handleCopyCommand(session) {
-  const codeToCopy = session.lastCode || (session.messages.length > 0 ? session.messages[session.messages.length - 1]?.content : '');
-  if (!codeToCopy) {
-    console.log(chalk.yellow('! Пока нет кода для копирования. Сначала сгенерируй код!\n'));
-    return;
-  }
-
-  const ok = copyToClipboard(codeToCopy);
-  if (ok) {
-    console.log(chalk.green('✓ Код успешно скопирован в буфер обмена! Вставляй через Ctrl+V.\n'));
-  } else {
-    console.log(chalk.red('✗ Не удалось скопировать (убедись, что установлен wl-copy или xclip).\n'));
-  }
-}
-
-export async function handleSaveCommand(args, session) {
-  const codeToSave = session.lastCode || (session.messages.length > 0 ? session.messages[session.messages.length - 1]?.content : '');
-  if (!codeToSave) {
-    console.log(chalk.yellow('! Пока нет кода для сохранения. Сначала сгенерируй код!\n'));
-    return;
-  }
-
-  let fileName = args ? args.trim() : '';
-  if (!fileName) {
-    fileName = await input({
-      message: `Введите имя файла для сохранения (например, index.html) ${chalk.dim('(Esc — отмена)')}:`
-    });
-    if (fileName === null) {
-      console.log(chalk.dim('(Отменено)\n'));
-      return;
-    }
-  }
-
-  if (!fileName.trim()) {
-    console.log(chalk.yellow('! Сохранение отменено, имя файла не указано.\n'));
-    return;
-  }
-
-  const ok = saveCodeToFile(fileName.trim(), codeToSave);
-  if (ok) {
-    console.log(chalk.green(`✓ Код успешно сохранен в файл: ${chalk.bold(fileName.trim())}\n`));
-  } else {
-    console.log(chalk.red(`✗ Не удалось сохранить файл: ${fileName.trim()}\n`));
   }
 }

@@ -27,7 +27,7 @@ const DEFAULT_SELECT_THEME = {
 
 /**
  * Wrapper for inquirer prompts to support cancelling via Escape key (and graceful Ctrl+C exit)
- * Returns null if cancelled via Esc.
+ * Returns null / false if cancelled via Esc or Ctrl+C (when cancelOnSigint is true).
  */
 export function withEsc(promptFn, config, context = {}) {
   try {
@@ -53,10 +53,13 @@ export function withEsc(promptFn, config, context = {}) {
     .catch((err) => {
       // CancelPromptError when promptPromise.cancel() is called on Escape
       if (err && (err.name === 'CancelPromptError' || err.message?.includes('canceled') || err.message?.includes('cancelled'))) {
-        return null;
+        return false;
       }
       // ExitPromptError when user force closes with Ctrl+C (SIGINT)
       if (err && (err.name === 'ExitPromptError' || err.message?.includes('SIGINT') || err.message?.includes('force closed'))) {
+        if (config?.cancelOnSigint) {
+          return false;
+        }
         console.log(chalk.dim('\n\nBye! 👋'));
         process.exit(0);
       }
@@ -101,4 +104,18 @@ export function password(config, context) {
  */
 export function confirm(config, context) {
   return withEsc(inqConfirm, config, context);
+}
+
+/**
+ * Specialized action confirmation:
+ * - Pressing ENTER confirms (default is true)
+ * - Pressing Ctrl+C or Esc cancels only the action (returns false without exiting Duddy)
+ */
+export async function confirmAction(message) {
+  const result = await confirm({
+    message: `${message} ${chalk.dim('[Enter: Да • Ctrl+C: Отмена]')}`,
+    default: true,
+    cancelOnSigint: true
+  });
+  return Boolean(result);
 }

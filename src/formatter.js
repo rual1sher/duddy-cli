@@ -1,14 +1,12 @@
 import chalk from 'chalk';
 
 /**
- * Animated terminal renderer with Markdown formatting and smooth typewriter typing.
+ * Terminal renderer with Markdown formatting and instant streaming.
  */
 export class AnimatedTerminalRenderer {
   constructor() {
     this.inCodeBlock = false;
     this.lineBuffer = '';
-    this.queue = [];
-    this.running = false;
   }
 
   renderLine(line) {
@@ -22,7 +20,7 @@ export class AnimatedTerminalRenderer {
     }
 
     if (this.inCodeBlock) {
-      // Pure code: NO '│' or prefix characters so copying is 100% clean
+      // Pure code: clean syntax coloring, no prefix characters so copying is 100% clean
       return chalk.greenBright(line);
     }
 
@@ -49,43 +47,19 @@ export class AnimatedTerminalRenderer {
       const lines = this.lineBuffer.split('\n');
       this.lineBuffer = lines.pop() ?? '';
       for (const line of lines) {
-        this.enqueue(this.renderLine(line) + '\n');
+        process.stdout.write(this.renderLine(line) + '\n');
       }
     }
-  }
-
-  enqueue(text) {
-    this.queue.push(...text);
-    if (!this.running) {
-      this.process();
-    }
-  }
-
-  async process() {
-    this.running = true;
-    while (this.queue.length > 0) {
-      const char = this.queue.shift();
-      process.stdout.write(char);
-      // Adaptive delay: typing feel when buffer is small, instant when buffer is backed up
-      const delay = this.queue.length > 30 ? 0 : 7;
-      if (delay > 0) {
-        await new Promise(r => setTimeout(r, delay));
-      }
-    }
-    this.running = false;
   }
 
   async flush() {
     if (this.lineBuffer) {
-      this.enqueue(this.renderLine(this.lineBuffer) + '\n');
+      process.stdout.write(this.renderLine(this.lineBuffer) + '\n');
       this.lineBuffer = '';
     }
     if (this.inCodeBlock) {
-      this.enqueue(chalk.hex('#334155')('─'.repeat(54)) + '\n');
+      process.stdout.write(chalk.hex('#334155')('─'.repeat(54)) + '\n');
       this.inCodeBlock = false;
-    }
-    while (this.running || this.queue.length > 0) {
-      await new Promise(r => setTimeout(r, 10));
     }
   }
 }

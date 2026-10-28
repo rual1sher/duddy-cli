@@ -10,10 +10,24 @@ function padLine(content, width) {
   return chalk.hex('#334155')('│') + '  ' + content + ' '.repeat(pad) + '  ' + chalk.hex('#334155')('│');
 }
 
-export function printBanner({ model = 'openrouter/free', hasKey = false, temperature = 0.4 } = {}) {
-  const width = 64;
+export function printBanner({ model = 'openrouter/free', hasKey = false, temperature = 0.4, cwd = process.cwd() } = {}) {
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  let prettyPath = home && cwd.startsWith(home) ? '~' + cwd.slice(home.length) : cwd;
+
+  const terminalCols = process.stdout.columns || 80;
+  const maxCols = Math.max(72, Math.min(terminalCols - 4, 100));
+  let width = 72;
+  const needed = 50 + prettyPath.length;
+  if (needed > width && maxCols > width) {
+    width = Math.min(needed, maxCols);
+  }
+
+  const maxPathLen = width - 50;
+  if (prettyPath.length > maxPathLen) {
+    prettyPath = '...' + prettyPath.slice(-(maxPathLen - 3));
+  }
+
   const borderTop = chalk.hex('#334155')('╭' + '─'.repeat(width + 4) + '╮');
-  const borderMid = chalk.hex('#334155')('├' + '─'.repeat(width + 4) + '┤');
   const borderBottom = chalk.hex('#334155')('╰' + '─'.repeat(width + 4) + '╯');
 
   // Cyberpunk Ice-Blue & Electric Cyan monochrome palette
@@ -27,40 +41,11 @@ export function printBanner({ model = 'openrouter/free', hasKey = false, tempera
   console.log();
   console.log(borderTop);
   console.log(padLine(l1('██████╗ ██╗   ██╗██████╗ ██████╗ ██╗   ██╗'), width));
-  console.log(padLine(l2('██╔══██╗██║   ██║██╔══██╗██╔══██╗╚██╗ ██╔╝') + '  ' + chalk.bold.hex('#38bdf8')('DUDDY AI') + chalk.dim(' v1.3.0'), width));
+  console.log(padLine(l2('██╔══██╗██║   ██║██╔══██╗██╔══██╗╚██╗ ██╔╝') + '  ' + chalk.bold.hex('#38bdf8')('DUDDY CLI') + chalk.dim(' V0.1.0'), width));
   console.log(padLine(l3('██║  ██║██║   ██║██║  ██║██║  ██║ ╚████╔╝ ') + '  ' + chalk.hex('#94a3b8')('Terminal AI Companion'), width));
   console.log(padLine(l4('██║  ██║██║   ██║██║  ██║██║  ██║  ╚██╔╝  ') + '  ' + chalk.hex('#64748b')('OpenRouter Engine'), width));
-  console.log(padLine(l5('██████╔╝╚██████╔╝██████╔╝██████╔╝   ██║   '), width));
+  console.log(padLine(l5('██████╔╝╚██████╔╝██████╔╝██████╔╝   ██║   ') + '  ' + chalk.hex('#64748b')('path: ') + chalk.hex('#38bdf8')(prettyPath), width));
   console.log(padLine(l6('╚═════╝  ╚═════╝ ╚═════╝ ╚═════╝    ╚═╝   '), width));
-  console.log(borderMid);
-
-  const keyBadge = hasKey
-    ? chalk.hex('#10b981')('● Connected')
-    : chalk.red('○ No Key (use /login)');
-
-  console.log(padLine(
-    chalk.hex('#94a3b8')('Model: ') + chalk.bold.hex('#38bdf8')(model) + '  ' +
-    chalk.hex('#94a3b8')('Status: ') + keyBadge,
-    width
-  ));
-
-  console.log(padLine(
-    chalk.hex('#64748b')('Temp: ') + chalk.hex('#cbd5e1')(temperature) + chalk.hex('#475569')(' · ') +
-    chalk.hex('#64748b')('Команды: ') + chalk.bold.hex('#38bdf8')('/help') + chalk.hex('#475569')(' · ') +
-    chalk.hex('#64748b')('Автодополнение: ') + chalk.bold.hex('#38bdf8')('<Tab>'),
-    width
-  ));
-
-  console.log(borderMid);
-  console.log(padLine(
-    chalk.hex('#38bdf8')('/model') + chalk.hex('#475569')(' · ') +
-    chalk.hex('#38bdf8')('/copy') + chalk.hex('#475569')(' · ') +
-    chalk.hex('#38bdf8')('/save') + chalk.hex('#475569')(' · ') +
-    chalk.hex('#38bdf8')('/clear') + chalk.hex('#475569')(' · ') +
-    chalk.hex('#38bdf8')('/system') + chalk.hex('#475569')(' · ') +
-    chalk.hex('#38bdf8')('/exit'),
-    width
-  ));
   console.log(borderBottom);
   console.log();
 }
