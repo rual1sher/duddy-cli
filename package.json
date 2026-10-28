@@ -4,7 +4,7 @@
   "description": "Terminal AI Assistant for Linux & DevOps",
   "type": "module",
   "bin": {
-    "duddy": "./bin/duddy.js"
+    "duddy": "bin/duddy.js"
   },
   "files": [
     "bin",
