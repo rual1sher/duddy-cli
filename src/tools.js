@@ -424,7 +424,9 @@ export async function executeTool(name, args = {}, ctx = {}) {
         await fs.mkdir(path.dirname(fullPath), { recursive: true });
         await fs.writeFile(fullPath, content, 'utf8');
         log('success', `✔ Файл сохранен: ${relPath} (${content.length} байт)`);
-        return `✓ Файл ${relPath} успешно сохранен (${content.length} байт).`;
+        return exists
+          ? `✓ Файл ${relPath} перезаписан (${content.length} байт).`
+          : `✓ Файл ${relPath} создан (${content.length} байт).`;
       }
 
       case 'create_folder': {

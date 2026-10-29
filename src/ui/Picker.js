@@ -172,9 +172,12 @@ export function Picker({
           const hint = item.hint
             ? h(Text, { color: item.disabled ? '#334155' : '#64748b', dimColor: true }, `  ${item.hint}`)
             : null;
-          const reason = item.disabled && item.reason
-            ? h(Text, { color: '#475569' }, `  · ${item.reason}`)
-            : null;
+          let reason = null;
+          if (item.disabled && item.reason) {
+            reason = h(Text, { color: '#475569' }, `  · ${item.reason}`);
+          } else if (item.busy && !item.disabled && item.reason) {
+            reason = h(Text, { color: '#f59e0b' }, `  · ${item.reason}`);
+          }
 
           // One Text with nested parts so a long row is cut with "…" instead of wrapping
           return h(

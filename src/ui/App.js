@@ -24,11 +24,13 @@ import {
   usageLines,
   helpLines
 } from '../session-actions.js';
-import { listModels, UNAVAILABLE_REASONS } from '../catalog.js';
+import { listModels, findModel, UNAVAILABLE_REASONS, clearModelBusy } from '../catalog.js';
 import { loadConfig } from '../config.js';
 import { detectProviderForModel, getProviderKey } from '../providers.js';
 import { fetchKeyInfo, getModelContextLength } from '../api.js';
 import { startBrowserLogin, openBrowser } from '../auth.js';
+import { buildUserContent } from '../images.js';
+import { describeToolStart } from '../toolDisplay.js';
 
 const h = React.createElement;
 
@@ -53,26 +55,35 @@ export function App({ session }) {
   const [liveTools, setLiveTools] = useState([]);
 
   const [overlay, setOverlay] = useState(null);
+  const [queued, setQueued] = useState([]);
+  const [draft, setDraft] = useState({ text: '', key: 0 });
 
+  const liveToolsRef = useRef([]);
   const liveTextBufferRef = useRef('');
   const liveTextTimerRef = useRef(null);
   const abortControllerRef = useRef(null);
   const lastSigintRef = useRef(0);
   const modelLabelRef = useRef('');
+  const queueRef = useRef([]);
+  const busyRef = useRef(false);
+  const changesRef = useRef(new Map());
+  const sendRef = useRef(null);
+  const lastActivityRef = useRef(0);
 
   const toolCtxRef = useRef({
     autoApprove: Boolean(session.autoApprove),
     canPrompt: true,
     log: (level, text) => {
-      setLiveTools(prev => {
-        if (prev.length === 0) return prev;
-        const last = prev[prev.length - 1];
-        const updated = {
-          ...last,
-          logs: [...(last.logs || []), { level, text }]
-        };
-        return [...prev.slice(0, -1), updated];
-      });
+      const prev = liveToolsRef.current;
+      if (prev.length === 0) return;
+      const last = prev[prev.length - 1];
+      const updated = {
+        ...last,
+        logs: [...(last.logs || []), { level, text }]
+      };
+      const next = [...prev.slice(0, -1), updated];
+      liveToolsRef.current = next;
+      setLiveTools(next);
     },
     approve: ({ name, relPath, preview }) => {
       return new Promise((resolve) => {
@@ -82,6 +93,7 @@ export function App({ session }) {
           relPath,
           preview,
           onResolve: (choice) => {
+            lastActivityRef.current = Date.now();
             setOverlay(null);
             if (choice === 'all') {
               toolCtxRef.current.autoApprove = true;
@@ -102,6 +114,22 @@ export function App({ session }) {
     }
     setLiveText(liveTextBufferRef.current);
   }, []);
+
+  const commitLiveText = useCallback(() => {
+    flushLiveText();
+    if (!liveTextBufferRef.current.trim()) {
+      liveTextBufferRef.current = '';
+      setLiveText('');
+      return;
+    }
+    const rendered = renderMarkdown(liveTextBufferRef.current);
+    setTranscript(prev => [
+      ...prev,
+      { type: 'assistant', lines: rendered, label: modelLabelRef.current }
+    ]);
+    liveTextBufferRef.current = '';
+    setLiveText('');
+  }, [flushLiveText]);
 
   const queueLiveText = useCallback((delta) => {
     liveTextBufferRef.current += delta;
@@ -216,6 +244,7 @@ export function App({ session }) {
     if (!session.apiKey) {
       openLoginPicker();
     }
+    listModels(loadConfig()).catch(() => {});
     getModelContextLength(session.model, session.provider, session.apiKey)
       .then(len => {
         session.contextLength = len;
@@ -302,6 +331,8 @@ export function App({ session }) {
       }
 
       case 'clear':
+        queueRef.current = [];
+        setQueued([]);
         session.messages = [];
         session.lastRoutedModel = '';
         toolCtxRef.current.autoApprove = Boolean(session.autoApprove);
@@ -432,19 +463,30 @@ export function App({ session }) {
               ...models
             ];
 
-        const items = allModels.map(m => ({
-          label: m.name,
-          hint: m.id,
-          value: { id: m.id, provider: m.provider },
-          current: m.id === session.model,
-          group: hasBoth ? (m.provider === 'google' ? 'Google' : 'OpenRouter') : undefined,
-          disabled: Boolean(m.unavailable),
-          reason: m.unavailable ? UNAVAILABLE_REASONS[m.unavailable] : undefined
-        }));
+        const items = allModels.map(m => {
+          const disabled = Boolean(m.unavailable);
+          const busy = Boolean(m.busy);
+          let reason;
+          if (disabled) {
+            reason = UNAVAILABLE_REASONS[m.unavailable];
+          } else if (busy) {
+            reason = 'перегружена сейчас — попробуйте позже';
+          }
+          return {
+            label: m.name,
+            hint: m.id,
+            value: { id: m.id, provider: m.provider },
+            current: m.id === session.model,
+            group: hasBoth ? (m.provider === 'google' ? 'Google' : 'OpenRouter') : undefined,
+            disabled,
+            busy,
+            reason
+          };
+        });
 
         setOverlay({
           kind: 'picker',
-          title: 'Выбор модели',
+          title: `Выбор модели · доступно ${items.filter(it => !it.disabled).length} из ${items.length}`,
           items,
           searchable: true,
           initialValue: session.model,
@@ -495,30 +537,54 @@ export function App({ session }) {
 
   // --- Основной агентный цикл отправки сообщений ---
 
-  const handleSend = async (userText) => {
+  const handleSend = async (userText, images = []) => {
     const trimmed = userText.trim();
     if (!trimmed) return;
+
+    if (busyRef.current) {
+      if (trimmed.startsWith('/')) {
+        setTranscript(prev => [
+          ...prev,
+          {
+            type: 'note',
+            level: 'warn',
+            text: 'Команды недоступны во время ответа — дождитесь завершения или нажмите Esc'
+          }
+        ]);
+        return;
+      }
+      queueRef.current.push(trimmed);
+      setQueued([...queueRef.current]);
+      return;
+    }
 
     if (trimmed.startsWith('/')) {
       await handleCommand(trimmed);
       return;
     }
 
+    busyRef.current = true;
+    changesRef.current.clear();
     setTranscript(prev => [...prev, { type: 'user', text: trimmed }]);
     setStatus('working');
     setPhase('thinking');
     const startMs = Date.now();
     setStartedAt(startMs);
+    lastActivityRef.current = Date.now();
 
     abortControllerRef.current = new AbortController();
     modelLabelRef.current = session.model;
     liveTextBufferRef.current = '';
 
+    const content = buildUserContent(trimmed, images);
+
     const messagesToSend = [
       { role: 'system', content: session.systemPrompt },
       ...(session.messages || []),
-      { role: 'user', content: trimmed }
+      { role: 'user', content }
     ];
+
+    let succeeded = false;
 
     try {
       const { finalText, newMessages, lastUsage, elapsedMs } = await runAgentTurn({
@@ -527,43 +593,80 @@ export function App({ session }) {
         toolCtx: toolCtxRef.current,
         signal: abortControllerRef.current.signal,
         events: {
-          onPhase: (p) => setPhase(p),
+          takeQueued: () => {
+            const taken = queueRef.current;
+            queueRef.current = [];
+            setQueued([]);
+            return taken;
+          },
+          onQueuedInjected: (texts) => {
+            lastActivityRef.current = Date.now();
+            commitLiveText();
+            setTranscript(prev => [
+              ...prev,
+              ...texts.map(text => ({ type: 'user', text }))
+            ]);
+          },
+          onPhase: (p) => {
+            lastActivityRef.current = Date.now();
+            setPhase(p);
+          },
           onModel: (id) => {
+            lastActivityRef.current = Date.now();
             if (id && id !== session.model) {
               modelLabelRef.current = `${session.model} → ${id}`;
             }
           },
-          onText: (delta) => queueLiveText(delta),
+          onText: (delta) => {
+            lastActivityRef.current = Date.now();
+            queueLiveText(delta);
+          },
           onStepEnd: async () => {
-            flushLiveText();
-            if (liveTextBufferRef.current) {
-              const rendered = renderMarkdown(liveTextBufferRef.current);
-              setTranscript(prev => [
-                ...prev,
-                { type: 'assistant', lines: rendered, label: modelLabelRef.current }
-              ]);
-              liveTextBufferRef.current = '';
-              setLiveText('');
-            }
+            lastActivityRef.current = Date.now();
+            commitLiveText();
           },
           onToolStart: ({ id, name, args }) => {
-            const target = args?.path ?? '';
-            setLiveTools(prev => [...prev, { id, name, target, logs: [] }]);
+            lastActivityRef.current = Date.now();
+            const display = describeToolStart(name, args);
+            const target = display?.target ?? args?.path ?? '';
+            const next = [...liveToolsRef.current, { id, name, target, display, logs: [] }];
+            liveToolsRef.current = next;
+            setLiveTools(next);
           },
-          onToolResult: ({ id, name, ok, summary }) => {
-            setLiveTools(prev => {
-              const item = prev.find(t => t.id === id) || { id, name, target: '', logs: [] };
-              const toolResultItem = {
-                type: 'tool',
-                name: item.name || name,
-                target: item.target,
-                ok,
-                summary,
-                logs: item.logs || []
-              };
-              setTranscript(tPrev => [...tPrev, toolResultItem]);
-              return prev.filter(t => t.id !== id);
-            });
+          onToolResult: ({ id, name, ok, summary, display }) => {
+            lastActivityRef.current = Date.now();
+            const prev = liveToolsRef.current;
+            const item = prev.find(t => t.id === id) || { id, name, target: '', logs: [] };
+            const target = display?.target ?? item.target ?? '';
+            const title = display?.title;
+            const toolSummary = display ? display.summary : summary;
+            const diff = display?.diff || [];
+            const change = display?.change || null;
+
+            if (change && target) {
+              const prevChange = changesRef.current.get(target);
+              if (prevChange === 'created' && change === 'modified') {
+                // оставить 'created'
+              } else {
+                changesRef.current.set(target, change);
+              }
+            }
+
+            const toolResultItem = {
+              type: 'tool',
+              name: item.name || name,
+              title,
+              target,
+              ok,
+              summary: toolSummary,
+              diff,
+              change,
+              logs: item.logs || []
+            };
+            const next = prev.filter(t => t.id !== id);
+            liveToolsRef.current = next;
+            setLiveTools(next);
+            setTranscript(tPrev => [...tPrev, toolResultItem]);
           },
           onWarning: (msg) => {
             setTranscript(prev => [...prev, { type: 'note', level: 'warn', text: msg }]);
@@ -571,7 +674,9 @@ export function App({ session }) {
         }
       });
 
-      commitTurn(session, trimmed, newMessages, finalText);
+      commitTurn(session, content, newMessages, finalText);
+      succeeded = true;
+      clearModelBusy(session.provider, session.model);
 
       const turnElapsed = elapsedMs ?? (Date.now() - startMs);
       session.lastTurnMs = turnElapsed;
@@ -582,9 +687,24 @@ export function App({ session }) {
       const totalTok = lastUsage?.total_tokens || 0;
       const tokFormatted = totalTok >= 1000 ? `${(totalTok / 1000).toFixed(1)}k` : `${totalTok}`;
       const tokInfo = totalTok ? ` · ${tokFormatted} tok` : '';
+
+      const created = [];
+      const modified = [];
+      const deleted = [];
+      for (const [p, ch] of changesRef.current.entries()) {
+        if (ch === 'created') created.push(p);
+        else if (ch === 'modified') modified.push(p);
+        else if (ch === 'deleted') deleted.push(p);
+      }
+      const changes = { created, modified, deleted };
+
       setTranscript(prev => [
         ...prev,
-        { type: 'done', text: `✔ ${formatDuration(turnElapsed)}${tokInfo}` }
+        {
+          type: 'done',
+          text: `✔ ${formatDuration(turnElapsed)}${tokInfo}`,
+          changes
+        }
       ]);
 
       if (session.apiKey) {
@@ -617,22 +737,34 @@ export function App({ session }) {
         ]);
       }
     } finally {
-      flushLiveText();
-      if (liveTextBufferRef.current) {
-        const rendered = renderMarkdown(liveTextBufferRef.current);
-        setTranscript(prev => [
-          ...prev,
-          { type: 'assistant', lines: rendered, label: modelLabelRef.current }
-        ]);
-        liveTextBufferRef.current = '';
-      }
-      setLiveText('');
+      commitLiveText();
+      liveToolsRef.current = [];
       setLiveTools([]);
       setStatus('idle');
       setPhase('thinking');
       setStartedAt(null);
+      busyRef.current = false;
+
+      if (queueRef.current.length > 0) {
+        const queuedItems = queueRef.current;
+        queueRef.current = [];
+        setQueued([]);
+        if (succeeded) {
+          const joined = queuedItems.join('\n\n');
+          setTimeout(() => {
+            if (typeof sendRef.current === 'function') {
+              sendRef.current(joined);
+            }
+          }, 0);
+        } else {
+          const joined = queuedItems.join(' ');
+          setDraft(d => ({ text: joined, key: d.key + 1 }));
+        }
+      }
     }
   };
+
+  sendRef.current = handleSend;
 
   // --- Рендеринг интерфейса ---
 
@@ -680,8 +812,9 @@ export function App({ session }) {
               Box,
               { flexDirection: 'row' },
               h(Text, { color: '#38bdf8' }, '⏺ '),
-              h(Text, { bold: true, color: '#f8fafc' }, tool.name),
-              tool.target ? h(Text, { color: '#94a3b8' }, `(${tool.target})`) : null
+              h(Text, { bold: true, color: '#f8fafc' }, tool.display?.title || tool.name),
+              tool.target ? h(Text, { color: '#94a3b8' }, ` ${tool.target}`) : null,
+              h(Text, { color: '#94a3b8' }, '…')
             ),
             filteredLogs.map((log, i) =>
               h(
@@ -696,7 +829,7 @@ export function App({ session }) {
     );
   }
 
-  if (liveText) {
+  if (liveText.trim()) {
     const liveLines = renderMarkdown(liveText);
     liveElements.push(
       h(
@@ -725,8 +858,12 @@ export function App({ session }) {
       : null,
     overlayElement,
     h(InputBox, {
-      disabled: status === 'working',
+      busy: status === 'working',
+      queued,
+      draft: draft.text,
+      draftKey: draft.key,
       overlayOpen: Boolean(overlay),
+      imagesSupported: findModel(session.model)?.vision !== false,
       onSend: handleSend
     }),
     h(StatusBar, {
@@ -734,7 +871,9 @@ export function App({ session }) {
       session,
       phase,
       startedAt,
-      hasLiveText: Boolean(liveText)
+      getLastActivity: () => lastActivityRef.current,
+      queuedCount: queued.length,
+      waitingForUser: overlay?.kind === 'approval'
     })
   );
 }

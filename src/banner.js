@@ -44,6 +44,7 @@ export function bannerLines({ model = 'openrouter/free', provider = 'openrouter'
   const hints = '  ' +
     chalk.bold.hex('#94a3b8')('/') + chalk.dim(' — команды · ') +
     chalk.bold.hex('#94a3b8')('Esc') + chalk.dim(' — прервать · ') +
+    chalk.bold.hex('#94a3b8')('Ctrl+V') + chalk.dim(' — картинка · ') +
     chalk.bold.hex('#94a3b8')('Ctrl+C ×2') + chalk.dim(' — выход');
 
   return [

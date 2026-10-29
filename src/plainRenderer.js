@@ -37,7 +37,9 @@ export function createPlainRenderer(session, { interactive }) {
   let spinner = ora({
     text: spinnerText(),
     color: 'cyan',
-    spinner: 'dots12'
+    spinner: 'dots12',
+    // ora с discardStdin переводит stdin в raw-режим, а stdin-discarder из-за prependListener не запускает чтение свежего stdin — Ctrl+C тогда не доходит как SIGINT.
+    discardStdin: false
   }).start();
 
   const ticker = setInterval(() => {

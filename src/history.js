@@ -4,17 +4,19 @@
 
 import { MAX_HISTORY_TURNS } from './agent.js';
 
+export const MAX_IMAGE_TURNS = 3;
 export { MAX_HISTORY_TURNS };
 
 /**
  * Фиксирует завершённый ход диалога в истории сессии:
  * - обрезает tool-результаты > 4000 символов из предыдущих ходов
+ * - заменяет устаревшие изображения в истории на текстовые заглушки
  * - сохраняет сообщение пользователя и новые сообщения агента
  * - при пустом ответе сохраняет заглушку '(ход прерван: ответ не получен)'
  * - обрезает историю до MAX_HISTORY_TURNS ходов пользователя
  *
  * @param {object} session - Текущая сессия Duddy
- * @param {string} userText - Текст запроса пользователя
+ * @param {string|Array<object>} userText - Текст или массив частей запроса пользователя
  * @param {Array<object>} newMessages - Новые сообщения текущего хода
  * @param {string} [finalText] - Финальный текстовый ответ модели
  */
@@ -28,7 +30,22 @@ export function commitTurn(session, userText, newMessages, finalText) {
     }
   }
 
-  // 2. Сохраняем ход: пользователь + новые сообщения
+  // 2. Очищаем старые base64-изображения из истории, чтобы не раздувать контекст
+  const userMessages = session.messages.filter(m => m.role === 'user');
+  const keepCount = MAX_IMAGE_TURNS - 1;
+  const toStripCount = Math.max(0, userMessages.length - keepCount);
+  for (let i = 0; i < toStripCount; i++) {
+    const msg = userMessages[i];
+    if (Array.isArray(msg.content)) {
+      msg.content = msg.content.map(part =>
+        part?.type === 'image_url'
+          ? { type: 'text', text: '[изображение удалено из истории]' }
+          : part
+      );
+    }
+  }
+
+  // 3. Сохраняем ход: пользователь + новые сообщения
   session.messages.push({ role: 'user', content: userText });
   if (Array.isArray(newMessages)) {
     session.messages.push(...newMessages);

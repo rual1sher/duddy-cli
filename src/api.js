@@ -20,37 +20,61 @@ export function createClient(apiKey, providerId = 'openrouter') {
   });
 }
 
+const THINK_TAG_PAIRS = [
+  { open: '<think>', close: '</think>' },
+  { open: '<thought>', close: '</thought>' }
+];
+const ALL_OUTSIDE_TAGS = THINK_TAG_PAIRS.flatMap(p => [p.open, p.close]);
+const MAX_OUTSIDE_TAG_LEN = Math.max(...ALL_OUTSIDE_TAGS.map(t => t.length));
+
 /**
- * Создает потоковый фильтр тегов <think>...</think>, поддерживающий
- * разрыв тегов между чанками.
+ * Создает потоковый фильтр тегов рассуждений (<think>...</think> и <thought>...</thought>),
+ * поддерживающий разрыв тегов между чанками и отбрасывающий осиротевшие закрывающие теги.
  *
- * @param {(text: string) => void} onText - Колбэк для текста вне блока <think>
- * @param {(think: string) => void} onThink - Колбэк для текста внутри блока <think>
+ * @param {(text: string) => void} onText - Колбэк для текста вне блока рассуждений
+ * @param {(think: string) => void} onThink - Колбэк для текста внутри блока рассуждений
  * @returns {{ push: (chunk: string) => void, end: () => void }}
  */
 export function createThinkFilter(onText, onThink) {
-  const OPEN_TAG = '<think>';
-  const CLOSE_TAG = '</think>';
   let inThink = false;
+  let activeCloseTag = null;
   let pending = '';
 
   function processBuffer() {
     while (pending.length > 0) {
       if (!inThink) {
-        const idx = pending.indexOf(OPEN_TAG);
-        if (idx !== -1) {
-          const before = pending.slice(0, idx);
+        let earliest = null;
+        for (const pair of THINK_TAG_PAIRS) {
+          const openIdx = pending.indexOf(pair.open);
+          if (openIdx !== -1 && (earliest === null || openIdx < earliest.index)) {
+            earliest = { index: openIdx, tag: pair.open, type: 'open', pair };
+          }
+          const closeIdx = pending.indexOf(pair.close);
+          if (closeIdx !== -1 && (earliest === null || closeIdx < earliest.index)) {
+            earliest = { index: closeIdx, tag: pair.close, type: 'close', pair };
+          }
+        }
+
+        if (earliest !== null) {
+          const before = pending.slice(0, earliest.index);
           if (before) onText(before);
-          pending = pending.slice(idx + OPEN_TAG.length);
-          inThink = true;
+          pending = pending.slice(earliest.index + earliest.tag.length);
+
+          if (earliest.type === 'open') {
+            inThink = true;
+            activeCloseTag = earliest.pair.close;
+          }
+          // Если earliest.type === 'close' (осиротевший закрывающий тег вне блока рассуждений),
+          // просто отбрасываем его без вывода пользователю
           continue;
         }
 
-        // Проверяем, является ли суффикс pending префиксом <think>
+        // Проверяем, является ли суффикс pending началом какого-то из открывающих или закрывающих тегов
         let matchLen = 0;
-        const maxCheck = Math.min(pending.length, OPEN_TAG.length - 1);
+        const maxCheck = Math.min(pending.length, MAX_OUTSIDE_TAG_LEN - 1);
         for (let len = maxCheck; len >= 1; len--) {
-          if (OPEN_TAG.startsWith(pending.slice(-len))) {
+          const suffix = pending.slice(-len);
+          if (ALL_OUTSIDE_TAGS.some(t => t.startsWith(suffix))) {
             matchLen = len;
             break;
           }
@@ -67,20 +91,21 @@ export function createThinkFilter(onText, onThink) {
           break;
         }
       } else {
-        const idx = pending.indexOf(CLOSE_TAG);
+        const idx = pending.indexOf(activeCloseTag);
         if (idx !== -1) {
           const before = pending.slice(0, idx);
           if (before) onThink(before);
-          pending = pending.slice(idx + CLOSE_TAG.length);
+          pending = pending.slice(idx + activeCloseTag.length);
           inThink = false;
+          activeCloseTag = null;
           continue;
         }
 
-        // Проверяем, является ли суффикс pending префиксом </think>
+        // Проверяем, является ли суффикс pending префиксом активного закрывающего тега
         let matchLen = 0;
-        const maxCheck = Math.min(pending.length, CLOSE_TAG.length - 1);
+        const maxCheck = Math.min(pending.length, activeCloseTag.length - 1);
         for (let len = maxCheck; len >= 1; len--) {
-          if (CLOSE_TAG.startsWith(pending.slice(-len))) {
+          if (activeCloseTag.startsWith(pending.slice(-len))) {
             matchLen = len;
             break;
           }
@@ -115,8 +140,88 @@ export function createThinkFilter(onText, onThink) {
         }
         pending = '';
       }
+      inThink = false;
+      activeCloseTag = null;
     }
   };
+}
+
+/**
+ * Создать состояние для накопления потоковых вызовов инструментов (tool calls).
+ *
+ * @returns {{ calls: Array<object>, byIndex: Map<number, object> }}
+ */
+export function createToolCallState() {
+  return {
+    calls: [],
+    byIndex: new Map()
+  };
+}
+
+/**
+ * Накопить дельту вызова инструмента (tool call) в состояние.
+ * Поддерживает как стандартный OpenAI-формат с числовым индексом tc.index,
+ * так и Google Gemini (OpenAI-compat), который не присылает index,
+ * передавая отдельные вызовы с собственным id.
+ *
+ * @param {{ calls: Array<object>, byIndex: Map<number, object> }} state - Состояние накопления
+ * @param {object} tc - Дельта вызова инструмента из chunk.choices[0].delta.tool_calls
+ * @returns {object} Накопленный объект вызова инструмента
+ */
+export function accumulateToolCallDelta(state, tc) {
+  let slot;
+  if (typeof tc.index === 'number') {
+    slot = state.byIndex.get(tc.index);
+    if (!slot) {
+      slot = {
+        id: tc.id || '',
+        type: tc.type || 'function',
+        function: {
+          name: tc.function?.name || '',
+          arguments: ''
+        }
+      };
+      state.calls.push(slot);
+      state.byIndex.set(tc.index, slot);
+    }
+  } else {
+    const lastCall = state.calls.length > 0 ? state.calls[state.calls.length - 1] : null;
+    if (!lastCall || (tc.id && lastCall.id && lastCall.id !== tc.id)) {
+      slot = {
+        id: tc.id || '',
+        type: tc.type || 'function',
+        function: {
+          name: tc.function?.name || '',
+          arguments: ''
+        }
+      };
+      state.calls.push(slot);
+    } else {
+      slot = lastCall;
+    }
+  }
+
+  if (tc.id) slot.id = tc.id;
+  if (tc.function?.name) {
+    slot.function.name = tc.function.name;
+  }
+  if (tc.function?.arguments) {
+    slot.function.arguments += tc.function.arguments;
+  }
+  if (tc.extra_content) {
+    // Gemini 3.x требует сохранения extra_content (thought_signature) в истории для вызовов функций
+    const prev = slot.extra_content;
+    slot.extra_content = {
+      ...prev,
+      ...tc.extra_content,
+      google: {
+        ...prev?.google,
+        ...tc.extra_content.google
+      }
+    };
+  }
+
+  return slot;
 }
 
 /**
@@ -215,7 +320,7 @@ export async function streamChatCompletion({
   let usage = null;
   let routedModel = '';
   let modelReported = false;
-  const toolCallsMap = {};
+  const state = createToolCallState();
 
   const thinkFilter = createThinkFilter(
     (text) => {
@@ -295,24 +400,7 @@ export async function streamChatCompletion({
       // Accumulate tool calls if any
       if (delta.tool_calls) {
         for (const tc of delta.tool_calls) {
-          const idx = tc.index ?? 0;
-          if (!toolCallsMap[idx]) {
-            toolCallsMap[idx] = {
-              id: tc.id || '',
-              type: tc.type || 'function',
-              function: {
-                name: tc.function?.name || '',
-                arguments: ''
-              }
-            };
-          }
-          if (tc.id) toolCallsMap[idx].id = tc.id;
-          if (tc.function?.name) {
-            toolCallsMap[idx].function.name = tc.function.name;
-          }
-          if (tc.function?.arguments) {
-            toolCallsMap[idx].function.arguments += tc.function.arguments;
-          }
+          accumulateToolCallDelta(state, tc);
         }
       }
 
@@ -380,7 +468,7 @@ export async function streamChatCompletion({
 
   thinkFilter.end();
 
-  const toolCalls = Object.values(toolCallsMap);
+  const toolCalls = state.calls;
 
   return {
     content: fullResponse,

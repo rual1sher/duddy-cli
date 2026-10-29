@@ -113,11 +113,21 @@ ${chalk.bold('Interactive Commands:')}
       { role: 'user', content: combinedContent }
     ];
 
+    const controller = new AbortController();
+    const onSigint = () => {
+      if (controller.signal.aborted) {
+        process.exit(130);
+      }
+      controller.abort();
+    };
+    process.on('SIGINT', onSigint);
+
     try {
       const { lastUsage, elapsedMs } = await runAgentTurn({
         session,
         messages: messagesToSend,
         toolCtx,
+        signal: controller.signal,
         events: renderer.events
       });
 
@@ -126,12 +136,21 @@ ${chalk.bold('Interactive Commands:')}
       const tokenInfo = lastUsage?.total_tokens ? ` · ${tokFormatted} tok` : '';
       console.log(chalk.hex('#334155')('╰─ ') + chalk.hex('#10b981')('✔ Готово') + chalk.hex('#64748b')(` · ${durationStr}${tokenInfo}\n`));
     } catch (err) {
-      console.error(chalk.red(`\nError: ${errorText(err)}`));
-      const hint = handleModelError(err, session);
-      if (hint) console.error(chalk.yellow(`↳ ${hint}`));
-      process.exit(1);
+      if (controller.signal.aborted || err?.name === 'AbortError') {
+        console.error(chalk.yellow('\nОстановлено'));
+        process.exitCode = 130;
+      } else {
+        console.error(chalk.red(`\nError: ${errorText(err)}`));
+        const hint = handleModelError(err, session);
+        if (hint) console.error(chalk.yellow(`↳ ${hint}`));
+        process.exit(1);
+      }
     } finally {
+      process.off('SIGINT', onSigint);
       renderer.finish();
+    }
+    if (process.exitCode === 130) {
+      process.exit(130);
     }
     return;
   }

@@ -49,6 +49,7 @@ duddy/
 │   ├── errors.js         # Подсказки к ошибкам API (errorHint)
 │   ├── formatter.js      # Форматирование вывода, renderMarkdown, AnimatedTerminalRenderer
 │   ├── history.js        # Управление историей сессии (commitTurn, MAX_HISTORY_TURNS)
+│   ├── images.js         # Изображения: буфер обмена, пути, data URL
 │   ├── plainRenderer.js  # Текстовый рендерер терминала для one-shot/pipe режима
 │   ├── providers.js      # Конфигурация провайдеров и автоопределение
 │   ├── session-actions.js# Действия сессии (команды, выбор моделей, лимиты)

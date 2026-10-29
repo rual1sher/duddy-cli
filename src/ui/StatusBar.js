@@ -19,10 +19,12 @@ const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', 
  * @param {object} props.session
  * @param {string} props.phase
  * @param {number|null} props.startedAt
- * @param {boolean} props.hasLiveText
+ * @param {() => number} [props.getLastActivity]
+ * @param {number} [props.queuedCount=0]
+ * @param {boolean} [props.waitingForUser=false]
  * @returns {React.ReactElement}
  */
-export function StatusBar({ status, session, phase, startedAt, hasLiveText }) {
+export function StatusBar({ status, session, phase, startedAt, getLastActivity, queuedCount = 0, waitingForUser = false }) {
   const [frameIndex, setFrameIndex] = useState(0);
   const [now, setNow] = useState(Date.now());
 
@@ -36,26 +38,35 @@ export function StatusBar({ status, session, phase, startedAt, hasLiveText }) {
   }, [status]);
 
   if (status === 'working') {
-    const elapsed = startedAt ? now - startedAt : 0;
+    const elapsed = startedAt ? Math.max(0, now - startedAt) : 0;
     const spinnerChar = SPINNER_FRAMES[frameIndex];
 
     let phaseName = 'Думает';
-    if (phase === 'reasoning') phaseName = 'Рассуждает';
+    if (waitingForUser) phaseName = 'Ждёт подтверждения';
+    else if (phase === 'reasoning') phaseName = 'Рассуждает';
     else if (phase === 'tools') phaseName = 'Выполняет инструменты';
 
     const routedModel = session?.lastRoutedModel;
     const model = session?.model || 'model';
     const label = routedModel && routedModel !== model ? `${model} → ${routedModel}` : model;
-    const isSlow = elapsed > 20000 && !hasLiveText;
+    const isSlow = !waitingForUser && now - (getLastActivity?.() || startedAt || now) > 20000;
 
     return h(
       Box,
-      { paddingX: 1, flexDirection: 'row' },
-      h(Text, { color: '#38bdf8' }, `${spinnerChar} ${phaseName}… ${formatDuration(elapsed)}`),
-      h(Text, { color: '#64748b', dimColor: true }, ` · ${label} · Esc — прервать`),
-      isSlow
-        ? h(Text, { color: '#f59e0b' }, ' · долго: провайдер может быть перегружен')
-        : null
+      { paddingX: 1 },
+      h(
+        Text,
+        { wrap: 'truncate-end' },
+        h(Text, { color: '#38bdf8' }, `${spinnerChar} ${phaseName}… ${formatDuration(elapsed)}`),
+        isSlow
+          ? h(Text, { color: '#f59e0b' }, ' · долго: провайдер может быть перегружен')
+          : null,
+        h(Text, { color: '#64748b', dimColor: true }, ` · ${label}`),
+        queuedCount > 0
+          ? h(Text, { color: '#64748b', dimColor: true }, ` · в очереди: ${queuedCount}`)
+          : null,
+        h(Text, { color: '#64748b', dimColor: true }, ' · Esc — прервать')
+      )
     );
   }
 

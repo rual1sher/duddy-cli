@@ -1,5 +1,6 @@
 import { streamChatCompletion } from './api.js';
 import { AGENT_TOOLS, executeTool } from './tools.js';
+import { describeToolResult } from './toolDisplay.js';
 
 export const MAX_HISTORY_TURNS = 10;
 export const MAX_TOOL_TURNS = 10;
@@ -15,6 +16,10 @@ export const MAX_TOOL_TURNS = 10;
  * @param {object} [params.toolCtx] - Контекст прав для executeTool (autoApprove, canPrompt, log, approve)
  * @param {AbortSignal} [params.signal] - Сигнал отмены (например, по SIGINT)
  * @param {object} [params.events={}] - Колбэки событий рендерера
+ * @param {() => string[]} [params.events.takeQueued] - Функция извлечения сообщений из очереди пользователя
+ * @param {(texts: string[]) => void} [params.events.onQueuedInjected] - Колбэк при внедрении сообщений из очереди в текущий ход
+ * @param {(info: { id: string, name: string, args: object|null }) => void} [params.events.onToolStart] - Колбэк начала выполнения инструмента
+ * @param {(info: { id: string, name: string, ok: boolean, summary: string, display: object }) => void} [params.events.onToolResult] - Колбэк завершения вызова инструмента
  * @returns {Promise<{ finalText: string, newMessages: Array<object>, lastUsage: object|null, hitTurnLimit: boolean, elapsedMs: number, routedModel: string }>}
  */
 export async function runAgentTurn({ session, messages, toolCtx, signal, events = {} }) {
@@ -100,6 +105,27 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
         }
       }
 
+      // Парсинг аргументов до формирования assistantMsg: для вызовов с невалидным JSON
+      // заменяем arguments на "{}", чтобы провайдер не отклонил следующий запрос
+      const parsedCalls = [];
+      for (let i = 0; i < toolCalls.length; i++) {
+        const call = toolCalls[i];
+        let funcArgs = null;
+        let parseError = null;
+
+        try {
+          funcArgs = JSON.parse(call.function?.arguments || '{}');
+        } catch (err) {
+          parseError = err;
+          funcArgs = null;
+          if (call.function) {
+            call.function.arguments = '{}';
+          }
+        }
+
+        parsedCalls.push({ funcArgs, parseError });
+      }
+
       const assistantMsg = {
         role: 'assistant',
         content: content || null,
@@ -113,24 +139,13 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
       for (let i = 0; i < toolCalls.length; i++) {
         const call = toolCalls[i];
         const funcName = call.function?.name || '';
-        let funcArgs = null;
-        let parseError = null;
-
-        try {
-          funcArgs = JSON.parse(call.function?.arguments || '{}');
-        } catch (err) {
-          parseError = err;
-          funcArgs = null;
-        }
+        const { funcArgs, parseError } = parsedCalls[i];
 
         emit('onToolStart', { id: call.id, name: funcName, args: funcArgs });
 
         let toolResultContent = '';
         if (parseError) {
-          toolResultContent = `Ошибка: аргументы вызова ${funcName} — невалидный JSON (${parseError.message}). Повтори вызов с корректным JSON.`;
-          if (typeof activeToolCtx.log === 'function') {
-            activeToolCtx.log('error', `✖ ${toolResultContent}`);
-          }
+          toolResultContent = `Ошибка: аргументы вызова ${funcName} — невалидный JSON (${parseError.message}). Повтори вызов с корректным JSON. Экранируй кавычки и переводы строк в строковых значениях.`;
         } else {
           const toolResult = await executeTool(funcName, funcArgs, activeToolCtx);
           toolResultContent = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult);
@@ -138,8 +153,9 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
 
         const ok = !toolResultContent.startsWith('Ошибка') && !toolResultContent.startsWith('Отклонено');
         const summary = (toolResultContent.split('\n')[0] || '').slice(0, 120);
+        const display = describeToolResult(funcName, funcArgs, toolResultContent, ok);
 
-        emit('onToolResult', { id: call.id, name: funcName, ok, summary });
+        emit('onToolResult', { id: call.id, name: funcName, ok, summary, display });
 
         const toolMsg = {
           role: 'tool',
@@ -149,6 +165,18 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
         };
         messages.push(toolMsg);
         newMessages.push(toolMsg);
+      }
+
+      if (typeof events.takeQueued === 'function') {
+        const queuedTexts = events.takeQueued();
+        if (Array.isArray(queuedTexts) && queuedTexts.length > 0) {
+          for (const text of queuedTexts) {
+            const userMsg = { role: 'user', content: text };
+            messages.push(userMsg);
+            newMessages.push(userMsg);
+          }
+          emit('onQueuedInjected', queuedTexts);
+        }
       }
 
       continue;

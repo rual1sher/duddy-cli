@@ -10,6 +10,10 @@ import { getProvider, getProviderKey } from './providers.js';
 const STATUS_FILE = path.join(os.homedir(), '.config', 'duddy', 'models-status.json');
 // Plan, region and retirement rarely change, so a weekly re-check is enough
 const STATUS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// Временная перегрузка считается активной 15 минут
+export const BUSY_TTL_MS = 15 * 60 * 1000;
+// Максимальный возраст модели в каталоге (2 года)
+export const MAX_MODEL_AGE_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 // Fast refusals (no quota, retired, region) come back in under a second;
 // anything slower is load, which is temporary and must not hide a model
 const PROBE_TIMEOUT_MS = 8000;
@@ -19,7 +23,7 @@ const PROBE_TIMEOUT_MS = 8000;
  * пока не изменится тариф, регион или сама модель
  */
 export const UNAVAILABLE_REASONS = {
-  plan: 'недоступна на вашем тарифе',
+  plan: 'платная — нет доступа с вашим ключом',
   region: 'недоступна в вашем регионе',
   retired: 'отключена провайдером',
   policy: 'запрещена настройками приватности OpenRouter',
@@ -41,6 +45,52 @@ const GOOGLE_EXCLUDED_SUBSTRINGS = [
   'aqa'
 ];
 
+export const MIN_CODE_MODEL_PARAMS_B = 20;
+
+/**
+ * Модель слишком слабая для работы с кодом
+ *
+ * @param {string} id - Идентификатор модели
+ * @returns {boolean}
+ */
+export function isCodeUnfit(id) {
+  if (!id) return false;
+  const cleanId = String(id).toLowerCase().replace(/^~/, '');
+  const name = cleanId.includes('/') ? cleanId.slice(cleanId.lastIndexOf('/') + 1) : cleanId;
+
+  // Общее число параметров меньше 20B
+  const paramMatch = name.match(/(?:^|[-_.])(\d+(?:\.\d+)?)([bt])(?=$|[-_:.])/);
+  if (paramMatch) {
+    const val = parseFloat(paramMatch[1]);
+    const multiplier = paramMatch[2] === 't' ? 1000 : 1;
+    if (val * multiplier < MIN_CODE_MODEL_PARAMS_B) {
+      return true;
+    }
+  }
+
+  // В name есть отдельный сегмент nano, micro или edge
+  if (/(^|[-_.])(nano|micro|edge)([-_:.]|$)/.test(name)) {
+    return true;
+  }
+
+  // В name есть "flash-lite" (лёгкие Gemini, слабы для кода)
+  if (name.includes('flash-lite')) {
+    return true;
+  }
+
+  // id начинается с "liquid/" (крошечные модели Liquid)
+  if (cleanId.startsWith('liquid/')) {
+    return true;
+  }
+
+  // Чат-версии OpenAI
+  if (/^openai\/gpt-.*chat/.test(cleanId)) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Кэш каталога моделей в памяти модуля
  * @type {{ google: Array<object>|null, openrouter: Array<object>|null }}
@@ -53,19 +103,115 @@ const catalogCache = {
 function readStatus() {
   try {
     const data = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf8'));
-    return { models: data.models || {}, probedAt: data.probedAt || {} };
+    return {
+      models: data.models || {},
+      probedAt: data.probedAt || {},
+      busy: data.busy || {}
+    };
   } catch {
-    return { models: {}, probedAt: {} };
+    return { models: {}, probedAt: {}, busy: {} };
   }
 }
 
 function writeStatus(status) {
   try {
     fs.mkdirSync(path.dirname(STATUS_FILE), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(STATUS_FILE, JSON.stringify(status, null, 2), { encoding: 'utf8', mode: 0o600 });
+    const payload = {
+      models: status.models || {},
+      probedAt: status.probedAt || {},
+      busy: status.busy || {}
+    };
+    fs.writeFileSync(STATUS_FILE, JSON.stringify(payload, null, 2), { encoding: 'utf8', mode: 0o600 });
   } catch {
     // The list still works without the cache, it is just re-checked next time
   }
+}
+
+/**
+ * Проверить, является ли ошибка временной перегрузкой модели
+ *
+ * @param {number|string} [status] - HTTP-статус
+ * @param {string} [message=''] - Текст ошибки
+ * @param {string} [code=''] - Код ошибки
+ * @returns {boolean}
+ */
+export function isTemporaryOverload(status, message = '', code = '') {
+  if (code === 'FIRST_CHUNK_TIMEOUT') {
+    return true;
+  }
+  const s = Number(status);
+  if (s === 500 || s === 502 || s === 503 || s === 504) {
+    return true;
+  }
+  const msg = String(message || '').toLowerCase();
+  if (msg.includes('no longer available')) {
+    return false;
+  }
+  if (
+    msg.includes('high demand') ||
+    msg.includes('overloaded') ||
+    msg.includes('internal error') ||
+    msg.includes('unavailable')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Внутренняя проверка флага busy по переданной карте busy
+ *
+ * @param {Record<string, number>} busyMap - Словарь времени пометок
+ * @param {string} provider - Идентификатор провайдера
+ * @param {string} id - Идентификатор модели
+ * @param {number} [now=Date.now()] - Текущее время в ms
+ * @returns {boolean}
+ */
+function checkModelBusy(busyMap, provider, id, now = Date.now()) {
+  const at = busyMap?.[`${provider}:${id}`];
+  if (!at) return false;
+  return now - at <= BUSY_TTL_MS;
+}
+
+/**
+ * Запомнить, что модель временно перегружена
+ *
+ * @param {string} provider - Идентификатор провайдера
+ * @param {string} id - Идентификатор модели
+ */
+export function markModelBusy(provider, id) {
+  if (!provider || !id) return;
+  const status = readStatus();
+  status.busy[`${provider}:${id}`] = Date.now();
+  writeStatus(status);
+}
+
+/**
+ * Снять пометку временной перегрузки модели
+ *
+ * @param {string} provider - Идентификатор провайдера
+ * @param {string} id - Идентификатор модели
+ */
+export function clearModelBusy(provider, id) {
+  if (!provider || !id) return;
+  const status = readStatus();
+  const key = `${provider}:${id}`;
+  if (status.busy[key]) {
+    delete status.busy[key];
+    writeStatus(status);
+  }
+}
+
+/**
+ * Проверить, помечена ли модель как временно перегруженная
+ *
+ * @param {string} provider - Идентификатор провайдера
+ * @param {string} id - Идентификатор модели
+ * @returns {boolean}
+ */
+export function isModelBusy(provider, id) {
+  const status = readStatus();
+  return checkModelBusy(status.busy, provider, id);
 }
 
 /**
@@ -129,6 +275,9 @@ export function getUnavailableReason(provider, id) {
 export function markModelUnavailable(provider, id, reason) {
   const status = readStatus();
   status.models[`${provider}:${id}`] = { reason, at: Date.now() };
+  if (status.busy[`${provider}:${id}`]) {
+    delete status.busy[`${provider}:${id}`];
+  }
   writeStatus(status);
   if (Array.isArray(catalogCache[provider])) {
     for (const m of catalogCache[provider]) {
@@ -139,25 +288,29 @@ export function markModelUnavailable(provider, id, reason) {
 
 /**
  * Разобрать ошибку запроса к модели; если она означает постоянную недоступность —
- * скрыть модель из списка
+ * скрыть модель из списка, если временную перегрузку — пометить как занятую
  *
  * @param {string} provider - Идентификатор провайдера
  * @param {string} id - Идентификатор модели
- * @param {Error & { status?: number }} err - Ошибка запроса
+ * @param {Error & { status?: number, code?: string }} err - Ошибка запроса
  * @returns {string|null} Ключ причины или null для временных ошибок
  */
 export function noteModelError(provider, id, err) {
   const reason = classifyModelError(err?.status, err?.message);
   if (reason) {
     markModelUnavailable(provider, id, reason);
+    return reason;
   }
-  return reason;
+  if (isTemporaryOverload(err?.status, err?.message, err?.code)) {
+    markModelBusy(provider, id);
+  }
+  return null;
 }
 
 /**
  * Проверить модель минимальным запросом
  *
- * @returns {Promise<string|null>} Причина недоступности или null
+ * @returns {Promise<string|null>} Причина недоступности, 'busy' при временной перегрузке или null
  */
 async function probeModel(provider, id, key) {
   const { baseURL, headers } = getProvider(provider);
@@ -169,9 +322,13 @@ async function probeModel(provider, id, key) {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
     });
     if (res.ok) return null;
-    return classifyModelError(res.status, await res.text());
-  } catch {
+    const body = await res.text();
+    const reason = classifyModelError(res.status, body);
+    if (reason) return reason;
+    if (isTemporaryOverload(res.status, body)) return 'busy';
     return null;
+  } catch {
+    return 'busy';
   }
 }
 
@@ -183,10 +340,16 @@ async function probeProvider(provider, models, key) {
   const status = readStatus();
   models.forEach((m, i) => {
     const k = `${provider}:${m.id}`;
-    if (reasons[i]) {
-      status.models[k] = { reason: reasons[i], at: Date.now() };
+    const result = reasons[i];
+    if (result === 'busy') {
+      status.busy[k] = Date.now();
+      delete status.models[k];
+    } else if (result) {
+      status.models[k] = { reason: result, at: Date.now() };
+      delete status.busy[k];
     } else {
       delete status.models[k];
+      delete status.busy[k];
     }
   });
   status.probedAt[provider] = Date.now();
@@ -415,11 +578,16 @@ async function fetchGoogleModels(key) {
       continue;
     }
 
+    if (isCodeUnfit(cleanId)) {
+      continue;
+    }
+
     filtered.push({
       id: cleanId,
       name: m.displayName || cleanId,
       provider: 'google',
-      contextLength: m.inputTokenLimit
+      contextLength: m.inputTokenLimit,
+      vision: true
     });
   }
 
@@ -443,21 +611,57 @@ async function fetchOpenRouterModels() {
   const json = await res.json();
   const rawList = Array.isArray(json.data) ? json.data : [];
 
+  const minCreatedSec = (Date.now() - MAX_MODEL_AGE_MS) / 1000;
   const filtered = [];
   for (const m of rawList) {
     // Batch endpoints are asynchronous and useless for chat
     if (!m || !m.id || m.id.endsWith(':batch')) continue;
-    const hasTools = Array.isArray(m.supported_parameters) && m.supported_parameters.includes('tools');
-    if (!hasTools && m.id !== 'openrouter/free') {
-      continue;
+
+    if (m.id !== 'openrouter/free') {
+      const hasTools = Array.isArray(m.supported_parameters) && m.supported_parameters.includes('tools');
+      if (!hasTools) {
+        continue;
+      }
+
+      // Отбрасываем модели с output_modalities не ровно ["text"] (генераторы картинок/аудио)
+      const outputModalities = m.architecture?.output_modalities;
+      if (outputModalities != null) {
+        const isOnlyText = Array.isArray(outputModalities) &&
+          outputModalities.length === 1 &&
+          outputModalities[0] === 'text';
+        if (!isOnlyText) {
+          continue;
+        }
+      }
+
+      // Классификаторы модерации и поисковые модели, не для чата
+      const lowerId = m.id.toLowerCase();
+      if (lowerId.includes('safeguard') || lowerId.includes('-search')) {
+        continue;
+      }
+
+      if (isCodeUnfit(m.id)) {
+        continue;
+      }
+
+      // Модели старше 2 лет (если поле created указано)
+      if (m.created && Number(m.created) < minCreatedSec) {
+        continue;
+      }
     }
+
+    const inputModalities = m.architecture?.input_modalities;
+    const vision = Array.isArray(inputModalities)
+      ? inputModalities.includes('image')
+      : undefined;
 
     filtered.push({
       id: m.id,
       name: m.name || m.id,
       provider: 'openrouter',
       contextLength: m.context_length,
-      free: Number(m.pricing?.prompt) === 0 && Number(m.pricing?.completion) === 0
+      free: Number(m.pricing?.prompt) === 0 && Number(m.pricing?.completion) === 0,
+      vision
     });
   }
 
@@ -472,7 +676,8 @@ async function fetchOpenRouterModels() {
       name: 'OpenRouter Free',
       provider: 'openrouter',
       contextLength: 200000,
-      free: true
+      free: true,
+      vision: undefined
     });
   }
 
@@ -480,10 +685,15 @@ async function fetchOpenRouterModels() {
 }
 
 /**
- * Получить общий список доступных моделей с кэшированием по провайдеру
+ * Получить общий отсортированный список доступных моделей с кэшированием по провайдеру.
+ *
+ * Исключает навсегда отключённые модели (retired) и платные дубликаты
+ * при бесплатном ключе OpenRouter. Сортирует модели в едином порядке:
+ * рабочие → перегруженные → недоступные (по причинам UNAVAILABLE_REASONS);
+ * внутри каждой группы активный провайдер идёт первым, сохраняя исходный порядок моделей.
  *
  * @param {object} [config={}] - Объект конфигурации пользователя
- * @returns {Promise<Array<{ id: string, name: string, provider: string, contextLength?: number }>>}
+ * @returns {Promise<Array<{ id: string, name: string, provider: string, contextLength?: number, free?: boolean, unavailable?: string|null, busy?: boolean }>>}
  */
 export async function listModels(config = {}) {
   const providersToFetch = [];
@@ -514,18 +724,32 @@ export async function listModels(config = {}) {
       models = all;
       // Probing hundreds of paid models is too costly; they are marked on the first real error instead
       probe = freeOnly;
+
+      if (freeOnlyKey) {
+        const freeTwinIds = new Set(
+          models.filter(m => m.id.endsWith(':free')).map(m => m.id)
+        );
+        models = models.filter(m => !freeTwinIds.has(`${m.id}:free`));
+      }
     }
 
     if (probe && needsProbe(provider)) {
       const candidates = freeOnlyKey ? models.filter(m => m.free) : models;
       await probeProvider(provider, candidates, provider === 'google' ? googleKey : openrouterKey);
     }
-    // Keep unusable models in the list (shown disabled), working ones first
-    models = models.map(m => ({
-      ...m,
-      unavailable: provider === 'openrouter' && freeOnlyKey && !m.free ? 'plan' : getUnavailableReason(provider, m.id)
-    }));
-    models = [...models.filter(m => !m.unavailable), ...models.filter(m => m.unavailable)];
+
+    models = models
+      .map(m => {
+        const storedReason = getUnavailableReason(provider, m.id);
+        const unavailable = storedReason === 'retired'
+          ? 'retired'
+          : (provider === 'openrouter' && freeOnlyKey && !m.free ? 'plan' : storedReason);
+        return {
+          ...m,
+          unavailable
+        };
+      })
+      .filter(m => m.unavailable !== 'retired');
 
     catalogCache[provider] = models;
     return { provider, models };
@@ -552,5 +776,52 @@ export async function listModels(config = {}) {
     }
   }
 
-  return combined;
+  const status = readStatus();
+  const now = Date.now();
+  const reasonKeys = Object.keys(UNAVAILABLE_REASONS);
+  const reasonOrderMap = new Map(reasonKeys.map((k, i) => [k, i]));
+
+  const getAvailabilityTier = (m) => {
+    if (!m.unavailable && !m.busy) return 0;
+    if (m.busy) return 1;
+    return 2;
+  };
+
+  const enriched = combined
+    .filter(m => m.unavailable !== 'retired')
+    .map((m, index) => ({
+      ...m,
+      busy: m.unavailable ? false : checkModelBusy(status.busy, m.provider, m.id, now),
+      _index: index
+    }));
+
+  enriched.sort((a, b) => {
+    // 1. Уровень: рабочие (0) → перегруженные (1) → недоступные (2)
+    const tierA = getAvailabilityTier(a);
+    const tierB = getAvailabilityTier(b);
+    if (tierA !== tierB) {
+      return tierA - tierB;
+    }
+
+    // 2. Внутри недоступных — по причине в порядке UNAVAILABLE_REASONS
+    if (tierA === 2 && tierB === 2) {
+      const rankA = reasonOrderMap.has(a.unavailable) ? reasonOrderMap.get(a.unavailable) : 999;
+      const rankB = reasonOrderMap.has(b.unavailable) ? reasonOrderMap.get(b.unavailable) : 999;
+      if (rankA !== rankB) {
+        return rankA - rankB;
+      }
+    }
+
+    // 3. Затем провайдер: активный первым
+    const pRankA = a.provider === activeProvider ? 0 : 1;
+    const pRankB = b.provider === activeProvider ? 0 : 1;
+    if (pRankA !== pRankB) {
+      return pRankA - pRankB;
+    }
+
+    // 4. Иначе — исходный порядок
+    return a._index - b._index;
+  });
+
+  return enriched.map(({ _index, ...m }) => m);
 }
