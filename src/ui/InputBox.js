@@ -11,10 +11,24 @@ import {
   parseImagePaths,
   loadImageFile,
   formatBytes,
+  removeBrokenLabels,
   MAX_IMAGES_PER_MESSAGE
 } from '../images.js';
 
 const h = React.createElement;
+
+/**
+ * Обработчик клавиш поля ввода. Монтируется после TextInput с тем же key,
+ * чтобы подписаться позже него: обработка Ctrl+V убирает уже вставленный им символ.
+ *
+ * @param {object} props
+ * @param {(input: string, key: object) => void} props.onInput - Обработчик клавиш
+ * @returns {null}
+ */
+function InputKeys({ onInput }) {
+  useInput(onInput);
+  return null;
+}
 
 /**
  * Компонент поля ввода
@@ -42,6 +56,7 @@ export function InputBox({
   const [commandIndex, setCommandIndex] = useState(0);
   const [attachments, setAttachments] = useState([]);
   const [notice, setNotice] = useState(null);
+  const [inputKey, setInputKey] = useState(0);
 
   const historyRef = useRef([]);
   const historyIndexRef = useRef(-1);
@@ -50,6 +65,12 @@ export function InputBox({
   const prevValueRef = useRef('');
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+
+  // TextInput двигает курсор только при своём вводе, смена key пересоздаёт его с курсором в конце
+  const setValueAtEnd = (next) => {
+    setValue(next);
+    setInputKey(k => k + 1);
+  };
 
   const isCommandMode = value.startsWith('/') && !value.includes(' ');
   const filteredCommands = isCommandMode
@@ -62,16 +83,29 @@ export function InputBox({
 
   useEffect(() => {
     if (draftKey > 0) {
-      setValue(prev => (prev ? `${draft} ${prev}` : draft));
+      setValueAtEnd(prev => (prev ? `${draft} ${prev}` : draft));
       historyIndexRef.current = -1;
     }
   }, [draftKey, draft]);
 
   const handleInputChange = (next) => {
     prevValueRef.current = value;
-    setValue(next);
+    const cleaned = removeBrokenLabels(value, next, attachmentsRef.current.map(att => att.label));
+    if (cleaned !== next) {
+      setValueAtEnd(cleaned);
+    } else {
+      setValue(next);
+    }
     if (notice) {
       setNotice(null);
+    }
+    // Подпись стёрта из текста — вложение не отправится, убираем его из списка и из лимита
+    const kept = attachmentsRef.current.filter(att => cleaned.includes(att.label));
+    if (kept.length !== attachmentsRef.current.length) {
+      setAttachments(kept);
+      if (kept.length === 0) {
+        attachmentCounterRef.current = 0;
+      }
     }
   };
 
@@ -97,7 +131,7 @@ export function InputBox({
         }
         setAttachments(prev => [...prev, ...newAttachments]);
         const labelsStr = newAttachments.map(a => a.label).join(' ');
-        setValue(prev => {
+        setValueAtEnd(prev => {
           if (!prev) return labelsStr;
           if (prev.endsWith(' ')) return `${prev}${labelsStr}`;
           return `${prev} ${labelsStr}`;
@@ -109,10 +143,10 @@ export function InputBox({
     }
 
     const sanitized = rawText.replace(/\r?\n/g, ' ');
-    setValue(prev => prev + sanitized);
+    setValueAtEnd(prev => prev + sanitized);
   });
 
-  useInput((input, key) => {
+  const handleKey = (input, key) => {
     if (key.escape) {
       if (busy) {
         return;
@@ -153,7 +187,7 @@ export function InputBox({
           setAttachments(prev => [...prev, { n: nextN, mime: img.mime, data: img.data, label }]);
           setNotice(null);
 
-          setValue(prev => {
+          setValueAtEnd(prev => {
             if (!prev) return label;
             if (prev.endsWith(' ')) return `${prev}${label}`;
             return `${prev} ${label}`;
@@ -177,7 +211,7 @@ export function InputBox({
       }
       if (key.tab) {
         const target = filteredCommands[commandIndex]?.cmd || filteredCommands[0].cmd;
-        setValue(target);
+        setValueAtEnd(target);
         return;
       }
     } else {
@@ -191,7 +225,7 @@ export function InputBox({
           const nextIdx = historyIndexRef.current + 1;
           if (nextIdx < hist.length) {
             historyIndexRef.current = nextIdx;
-            setValue(hist[hist.length - 1 - nextIdx]);
+            setValueAtEnd(hist[hist.length - 1 - nextIdx]);
           }
         }
         return;
@@ -201,15 +235,15 @@ export function InputBox({
         if (historyIndexRef.current > 0) {
           const nextIdx = historyIndexRef.current - 1;
           historyIndexRef.current = nextIdx;
-          setValue(hist[hist.length - 1 - nextIdx]);
+          setValueAtEnd(hist[hist.length - 1 - nextIdx]);
         } else if (historyIndexRef.current === 0) {
           historyIndexRef.current = -1;
-          setValue(tempInputRef.current);
+          setValueAtEnd(tempInputRef.current);
         }
         return;
       }
     }
-  }, { isActive: !overlayOpen });
+  };
 
   const handleSubmit = (val) => {
     let finalValue = val;
@@ -274,12 +308,12 @@ export function InputBox({
     attachments.length > 0
       ? h(
           Box,
-          { flexDirection: 'row', paddingLeft: 1, gap: 1 },
+          { flexDirection: 'row', flexWrap: 'wrap', paddingLeft: 1, columnGap: 1 },
           attachments.map(att =>
             h(
-              Text,
-              { key: att.n, color: '#94a3b8' },
-              `📎 ${att.label} · ${formatBytes(att.data?.length || 0)}`
+              Box,
+              { key: att.n, flexShrink: 0 },
+              h(Text, { color: '#94a3b8' }, `📎 ${att.label} · ${formatBytes(att.data?.length || 0)}`)
             )
           )
         )
@@ -294,6 +328,7 @@ export function InputBox({
       },
       h(Text, { color: '#38bdf8' }, '> '),
       h(TextInput, {
+        key: `input-${inputKey}`,
         value,
         onChange: handleInputChange,
         onSubmit: handleSubmit,
@@ -302,7 +337,8 @@ export function InputBox({
           : 'Спросите что-нибудь, / — команды, Ctrl+V — картинка',
         focus: !overlayOpen,
         showCursor: !overlayOpen
-      })
+      }),
+      h(InputKeys, { key: `keys-${inputKey}`, onInput: handleKey })
     ),
     notice
       ? h(

@@ -132,13 +132,9 @@ function writeStatus(status) {
  *
  * @param {number|string} [status] - HTTP-статус
  * @param {string} [message=''] - Текст ошибки
- * @param {string} [code=''] - Код ошибки
  * @returns {boolean}
  */
-export function isTemporaryOverload(status, message = '', code = '') {
-  if (code === 'FIRST_CHUNK_TIMEOUT') {
-    return true;
-  }
+export function isTemporaryOverload(status, message = '') {
   const s = Number(status);
   if (s === 500 || s === 502 || s === 503 || s === 504) {
     return true;
@@ -301,7 +297,7 @@ export function noteModelError(provider, id, err) {
     markModelUnavailable(provider, id, reason);
     return reason;
   }
-  if (isTemporaryOverload(err?.status, err?.message, err?.code)) {
+  if (isTemporaryOverload(err?.status, err?.message)) {
     markModelBusy(provider, id);
   }
   return null;

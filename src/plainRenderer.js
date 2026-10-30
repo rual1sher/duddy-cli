@@ -26,7 +26,7 @@ export function createPlainRenderer(session, { interactive }) {
   const spinnerText = () => {
     const elapsed = Date.now() - startedAt;
     const slowWarning = (elapsed > 20000 && !hasFirstText)
-      ? chalk.yellow(' · долго: провайдер может быть перегружен')
+      ? chalk.yellow(' · долго: модель может ещё думать')
       : '';
     return chalk.bold.hex('#38bdf8')(`Duddy ${phaseText}… `) +
       chalk.hex('#64748b')(`${formatDuration(elapsed)} · ${modelLabel()}`) +

@@ -9,6 +9,9 @@
   "engines": {
     "node": ">=22"
   },
+  "scripts": {
+    "test": "node --test"
+  },
   "files": [
     "bin",
     "src",

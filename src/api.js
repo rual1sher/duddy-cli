@@ -2,6 +2,11 @@ import OpenAI from 'openai';
 import chalk from 'chalk';
 import { getProvider } from './providers.js';
 
+// Модель может молчать, пока думает или собирает большой вызов инструмента, поэтому лимит большой, а прервать можно вручную
+export const FIRST_CHUNK_TIMEOUT_MS = 600000;
+// Gemini отдаёт вызов инструмента одним чанком, поэтому после текста тишина бывает такой же долгой, как перед первым чанком
+export const STREAM_STALL_TIMEOUT_MS = FIRST_CHUNK_TIMEOUT_MS;
+
 /**
  * Создать OpenAI-совместимый клиент для указанного провайдера
  *
@@ -16,7 +21,8 @@ export function createClient(apiKey, providerId = 'openrouter') {
     apiKey: apiKey,
     defaultHeaders: provider.headers || {},
     maxRetries: 1,
-    timeout: 600000
+    // Наш таймаут первого чанка должен срабатывать раньше таймаута SDK (иначе SDK успеет начать повтор запроса)
+    timeout: 660000
   });
 }
 
@@ -236,7 +242,8 @@ export function accumulateToolCallDelta(state, tc) {
  * @param {number} [params.maxTokens]
  * @param {number} [params.temperature=0.4]
  * @param {string} [params.reasoningEffort='auto']
- * @param {number} [params.firstChunkTimeoutMs=60000]
+ * @param {number} [params.firstChunkTimeoutMs=600000]
+ * @param {number} [params.stallTimeoutMs=600000]
  * @param {AbortSignal} [params.signal]
  * @param {(think: string) => void} [params.onReasoning]
  * @param {(text: string) => void} [params.onChunk]
@@ -253,7 +260,8 @@ export async function streamChatCompletion({
   maxTokens,
   temperature = 0.4,
   reasoningEffort = 'auto',
-  firstChunkTimeoutMs = 60000,
+  firstChunkTimeoutMs = FIRST_CHUNK_TIMEOUT_MS,
+  stallTimeoutMs = STREAM_STALL_TIMEOUT_MS,
   signal,
   onReasoning,
   onChunk,
@@ -289,6 +297,7 @@ export async function streamChatCompletion({
 
   const internalController = new AbortController();
   let timedOut = false;
+  let receivedChunk = false;
 
   const onExternalAbort = () => {
     internalController.abort();
@@ -302,17 +311,22 @@ export async function streamChatCompletion({
     }
   }
 
-  let timer = setTimeout(() => {
-    timedOut = true;
-    internalController.abort();
-  }, firstChunkTimeoutMs);
-
+  let timer = null;
   const clearTimer = () => {
     if (timer) {
       clearTimeout(timer);
       timer = null;
     }
   };
+  const armTimer = (ms) => {
+    clearTimer();
+    timer = setTimeout(() => {
+      timedOut = true;
+      internalController.abort();
+    }, ms);
+  };
+
+  armTimer(firstChunkTimeoutMs);
 
   let fullResponse = '';
   let inThinkingProcess = false;
@@ -377,7 +391,8 @@ export async function streamChatCompletion({
     }
 
     for await (const chunk of stream) {
-      clearTimer();
+      receivedChunk = true;
+      armTimer(stallTimeoutMs);
 
       if (chunk.model) {
         // Google returns ids as "models/<id>"
@@ -448,9 +463,19 @@ export async function streamChatCompletion({
     }
   } catch (err) {
     if (timedOut) {
-      const timeoutErr = new Error(`Модель ${model} не ответила за ${Math.round(firstChunkTimeoutMs / 1000)} с — вероятно, перегружена у провайдера. Выберите другую через /model`);
+      if (receivedChunk) {
+        const timeoutErr = new Error(`Ответ модели ${model} оборвался: нет новых чанков ${Math.round(stallTimeoutMs / 1000)} с`);
+        timeoutErr.code = 'STREAM_STALL_TIMEOUT';
+        throw timeoutErr;
+      }
+      const timeoutErr = new Error(`Модель ${model} не прислала ни одного чанка за ${Math.round(firstChunkTimeoutMs / 1000)} с — возможно, она ещё думала над ответом или запрос завис`);
       timeoutErr.code = 'FIRST_CHUNK_TIMEOUT';
       throw timeoutErr;
+    }
+    if (internalController.signal.aborted) {
+      const abortErr = new Error('Request was aborted.');
+      abortErr.name = 'AbortError';
+      throw abortErr;
     }
     throw err;
   } finally {

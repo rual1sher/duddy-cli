@@ -294,3 +294,36 @@ export function buildUserContent(text, images) {
     })
   ];
 }
+
+/**
+ * Подпись вложения удаляется только целиком: если правка задела подпись, из текста
+ * убирается вся подпись, иначе после Backspace остаётся обрывок «[Изображение #1».
+ *
+ * @param {string} prev - Текст до правки
+ * @param {string} next - Текст после правки
+ * @param {Array<string>} labels - Подписи текущих вложений
+ * @returns {string} Текст после правки с учётом удаления подписей
+ */
+export function removeBrokenLabels(prev, next, labels) {
+  if (next.length >= prev.length) return next;
+  let from = 0;
+  while (from < next.length && prev[from] === next[from]) from++;
+  let to = prev.length;
+  let nextEnd = next.length;
+  while (nextEnd > from && prev[to - 1] === next[nextEnd - 1]) {
+    to--;
+    nextEnd--;
+  }
+  if (nextEnd !== from) return next;
+  let touched = false;
+  for (const label of labels) {
+    const start = prev.indexOf(label);
+    const end = start + label.length;
+    if (start !== -1 && start < to && end > from) {
+      from = Math.min(from, start);
+      to = Math.max(to, end);
+      touched = true;
+    }
+  }
+  return touched ? prev.slice(0, from) + prev.slice(to) : next;
+}

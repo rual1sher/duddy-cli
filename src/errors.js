@@ -55,11 +55,14 @@ export function errorHint(err, session) {
   const code = err.code || '';
   const status = err.status || err.statusCode || 0;
 
+  if (code === 'FIRST_CHUNK_TIMEOUT' || code === 'STREAM_STALL_TIMEOUT') {
+    return 'Повторите запрос, разбейте задачу на части или выберите другую модель через /model';
+  }
+
   if (
     status === 503 ||
     msg.includes('503') ||
-    msg.includes('high demand') ||
-    code === 'FIRST_CHUNK_TIMEOUT'
+    msg.includes('high demand')
   ) {
     return 'Модель сейчас не отвечает или перегружена — повторите позже или выберите другую через /model';
   }

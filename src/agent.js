@@ -9,6 +9,7 @@ export const MAX_TOOL_TURNS = 10;
  * Исполняет один агентный ход (Agent Turn): отправляет сообщения модели,
  * сообщает о происходящем через колбэки events, выполняет вызовы инструментов (до MAX_TOOL_TURNS)
  * и накапливает порожденные сообщения и статистику токенов.
+ * При ошибке запроса к модели у ошибки есть partialMessages — завершённые шаги хода.
  *
  * @param {object} params
  * @param {object} params.session - Текущая сессия Duddy (модель, токен, статистика)
@@ -21,6 +22,7 @@ export const MAX_TOOL_TURNS = 10;
  * @param {(info: { id: string, name: string, args: object|null }) => void} [params.events.onToolStart] - Колбэк начала выполнения инструмента
  * @param {(info: { id: string, name: string, ok: boolean, summary: string, display: object }) => void} [params.events.onToolResult] - Колбэк завершения вызова инструмента
  * @returns {Promise<{ finalText: string, newMessages: Array<object>, lastUsage: object|null, hitTurnLimit: boolean, elapsedMs: number, routedModel: string }>}
+ * @throws {Error & { partialMessages?: Array<object> }} При ошибке запроса к модели у ошибки есть partialMessages — завершённые шаги хода
  */
 export async function runAgentTurn({ session, messages, toolCtx, signal, events = {} }) {
   const newMessages = [];
@@ -42,32 +44,43 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
   while (true) {
     emit('onPhase', 'thinking');
 
-    const { content, toolCalls, usage } = await streamChatCompletion({
-      provider: session.provider,
-      apiKey: session.apiKey,
-      model: session.model,
-      messages,
-      tools: AGENT_TOOLS,
-      temperature: session.temperature ?? 0.4,
-      reasoningEffort: session.reasoningEffort,
-      // Google sends nothing while the model thinks, so high effort needs a longer wait
-      firstChunkTimeoutMs: session.reasoningEffort === 'high' ? 180000 : 90000,
-      signal,
-      onModel: (m) => {
-        routedModel = m;
-        session.lastRoutedModel = m;
-        emit('onModel', m);
-      },
-      onReasoning: () => {
-        emit('onPhase', 'reasoning');
-      },
-      onChunk: (chunk) => {
-        emit('onText', chunk);
-      },
-      onWarning: (warningText) => {
-        emit('onWarning', warningText);
+    // Перед вызовом newMessages всегда содержит только завершённые шаги, поэтому пары assistant.tool_calls ↔ tool не разрываются
+    let stepText = '';
+    let streamResult;
+    try {
+      streamResult = await streamChatCompletion({
+        provider: session.provider,
+        apiKey: session.apiKey,
+        model: session.model,
+        messages,
+        tools: AGENT_TOOLS,
+        temperature: session.temperature ?? 0.4,
+        reasoningEffort: session.reasoningEffort,
+        signal,
+        onModel: (m) => {
+          routedModel = m;
+          session.lastRoutedModel = m;
+          emit('onModel', m);
+        },
+        onReasoning: () => {
+          emit('onPhase', 'reasoning');
+        },
+        onChunk: (chunk) => {
+          stepText += chunk;
+          emit('onText', chunk);
+        },
+        onWarning: (warningText) => {
+          emit('onWarning', warningText);
+        }
+      });
+    } catch (err) {
+      if (stepText.trim()) {
+        newMessages.push({ role: 'assistant', content: `${stepText}\n\n(ответ оборван)` });
       }
-    });
+      err.partialMessages = [...newMessages];
+      throw err;
+    }
+    const { content, toolCalls, usage } = streamResult;
 
     if (usage) {
       lastUsage = usage;
@@ -144,7 +157,9 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
         emit('onToolStart', { id: call.id, name: funcName, args: funcArgs });
 
         let toolResultContent = '';
-        if (parseError) {
+        if (signal?.aborted) {
+          toolResultContent = 'Отклонено: пользователь прервал ход';
+        } else if (parseError) {
           toolResultContent = `Ошибка: аргументы вызова ${funcName} — невалидный JSON (${parseError.message}). Повтори вызов с корректным JSON. Экранируй кавычки и переводы строк в строковых значениях.`;
         } else {
           const toolResult = await executeTool(funcName, funcArgs, activeToolCtx);
@@ -167,7 +182,7 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
         newMessages.push(toolMsg);
       }
 
-      if (typeof events.takeQueued === 'function') {
+      if (!signal?.aborted && typeof events.takeQueued === 'function') {
         const queuedTexts = events.takeQueued();
         if (Array.isArray(queuedTexts) && queuedTexts.length > 0) {
           for (const text of queuedTexts) {

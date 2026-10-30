@@ -13,7 +13,7 @@ import { Approval } from './Approval.js';
 import { BrowserLogin } from './BrowserLogin.js';
 import { runAgentTurn } from '../agent.js';
 import { renderMarkdown, formatDuration } from '../formatter.js';
-import { commitTurn } from '../history.js';
+import { commitTurn, commitFailedTurn } from '../history.js';
 import { handleModelError, errorText } from '../errors.js';
 import {
   AVAILABLE_COMMANDS,
@@ -33,6 +33,8 @@ import { buildUserContent } from '../images.js';
 import { describeToolStart } from '../toolDisplay.js';
 
 const h = React.createElement;
+const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
+const RESIZE_DEBOUNCE_MS = 150;
 
 /**
  * Главный компонент приложения Duddy TUI
@@ -260,6 +262,32 @@ export function App({ session }) {
     }
   }, [session, openLoginPicker]);
 
+  // Терминал переносит строки при смене ширины, и Ink стирает прошлый кадр по устаревшему
+  // числу строк, оставляя копии поля ввода. Поэтому экран очищается сразу, до отрисовки Ink,
+  // а когда ресайз закончился, история печатается заново под новую ширину.
+  useEffect(() => {
+    let columns = process.stdout.columns;
+    let timer = null;
+
+    const onResize = () => {
+      if (process.stdout.columns === columns) return;
+      columns = process.stdout.columns;
+      process.stdout.write(CLEAR_SCREEN);
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        process.stdout.write(CLEAR_SCREEN);
+        setStaticKey(k => k + 1);
+      }, RESIZE_DEBOUNCE_MS);
+    };
+
+    // Ink подписывается раньше, а очистка должна пройти до его отрисовки
+    process.stdout.prependListener('resize', onResize);
+    return () => {
+      clearTimeout(timer);
+      process.stdout.off('resize', onResize);
+    };
+  }, []);
+
   // Глобальный перехват клавиатуры (Ctrl+C, Esc)
   useInput((input, key) => {
     if (key.ctrl && input === 'c') {
@@ -336,7 +364,7 @@ export function App({ session }) {
         session.messages = [];
         session.lastRoutedModel = '';
         toolCtxRef.current.autoApprove = Boolean(session.autoApprove);
-        process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+        process.stdout.write(CLEAR_SCREEN);
         setTranscript([
           { type: 'banner' },
           { type: 'note', level: 'success', text: 'Новый диалог' }
@@ -715,6 +743,7 @@ export function App({ session }) {
           .catch(() => {});
       }
     } catch (err) {
+      const kept = commitFailedTurn(session, content, err);
       if (err.name === 'AbortError' || abortControllerRef.current?.signal.aborted) {
         setTranscript(prev => [
           ...prev,
@@ -732,7 +761,9 @@ export function App({ session }) {
             type: 'note',
             level: 'error',
             text: errorText(err),
-            hint
+            hint: kept
+              ? (hint ? `${hint} Контекст хода сохранён — можно написать «продолжай».` : 'Контекст хода сохранён — можно написать «продолжай».')
+              : hint
           }
         ]);
       }
