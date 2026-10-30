@@ -5,8 +5,10 @@
 import chalk from 'chalk';
 import { loadConfig, saveConfig } from './config.js';
 import { getProvider, getProviderKey, detectProviderForModel } from './providers.js';
-import { findModel, validateGoogleKey, clearCatalogCache, getUnavailableReason, UNAVAILABLE_REASONS } from './catalog.js';
-import { fetchKeyInfo, getModelContextLength } from './api.js';
+import { findModel, clearCatalogCache } from './models/catalog.js';
+import { validateGoogleKey } from './models/google.js';
+import { getUnavailableReason, UNAVAILABLE_REASONS } from './models/status.js';
+import { fetchKeyInfo, getModelContextLength } from './llm/modelInfo.js';
 import { MAX_HISTORY_TURNS } from './history.js';
 
 export const AVAILABLE_COMMANDS = [

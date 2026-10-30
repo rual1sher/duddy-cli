@@ -1,6 +1,6 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { streamChatCompletion } from '../src/api.js';
+import { streamChatCompletion } from '../src/llm/stream.js';
 
 const originalFetch = globalThis.fetch;
 

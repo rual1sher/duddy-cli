@@ -2,7 +2,7 @@
  * @fileoverview Определение подсказок к ошибкам API и провайдеров
  */
 
-import { noteModelError, UNAVAILABLE_REASONS } from './catalog.js';
+import { noteModelError, UNAVAILABLE_REASONS } from './models/status.js';
 
 /**
  * Человекочитаемый текст ошибки: провайдеры кладут причину в JSON внутри message

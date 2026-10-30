@@ -1,5 +1,6 @@
-import { streamChatCompletion } from './api.js';
-import { AGENT_TOOLS, executeTool } from './tools.js';
+import { streamChatCompletion } from './llm/stream.js';
+import { AGENT_TOOLS } from './tools/definitions.js';
+import { executeTool } from './tools/execute.js';
 import { describeToolResult } from './toolDisplay.js';
 
 export const MAX_HISTORY_TURNS = 10;
