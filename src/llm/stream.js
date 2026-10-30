@@ -38,10 +38,10 @@ function buildRequestPayload({
     requestPayload.tools = tools;
   }
   if (reasoningEffort && reasoningEffort !== 'auto') {
-    if (provider === 'google') {
-      requestPayload.reasoning_effort = reasoningEffort;
-    } else {
+    if (provider === 'openrouter') {
       requestPayload.reasoning = { effort: reasoningEffort };
+    } else {
+      requestPayload.reasoning_effort = reasoningEffort;
     }
   }
   return requestPayload;
@@ -213,10 +213,11 @@ function createDeltaHandler({
       }
     }
 
-    // Forward reasoning tokens (DeepSeek R1, Nemotron, etc.)
-    if (delta.reasoning) {
+    // Forward reasoning tokens (DeepSeek R1, Nemotron, etc.; xAI присылает мысли в reasoning_content)
+    const reasoning = delta.reasoning || delta.reasoning_content;
+    if (reasoning) {
       if (typeof onReasoning === 'function') {
-        onReasoning(delta.reasoning);
+        onReasoning(reasoning);
       }
     }
 

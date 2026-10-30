@@ -7,6 +7,7 @@ import { loadConfig, saveConfig } from './config.js';
 import { getProvider, getProviderKey, detectProviderForModel } from './providers.js';
 import { findModel, clearCatalogCache } from './models/catalog.js';
 import { validateGoogleKey } from './models/google.js';
+import { validateXaiKey } from './models/xai.js';
 import { getUnavailableReason, UNAVAILABLE_REASONS } from './models/status.js';
 import { fetchKeyInfo, getModelContextLength } from './llm/modelInfo.js';
 import { MAX_HISTORY_TURNS } from './history.js';
@@ -14,7 +15,7 @@ import { MAX_HISTORY_TURNS } from './history.js';
 export const AVAILABLE_COMMANDS = [
   { cmd: '/model', desc: 'Список моделей ваших провайдеров с поиском' },
   { cmd: '/effort', desc: 'Уровень рассуждений модели: low / medium / high' },
-  { cmd: '/login', desc: 'Авторизация в OpenRouter или Google AI Studio (браузер / ключ)' },
+  { cmd: '/login', desc: 'Авторизация в OpenRouter, Google AI Studio или xAI' },
   { cmd: '/clear', desc: 'Очистить историю диалога и экран' },
   { cmd: '/usage', desc: 'Показать статистику текущей сессии' },
   { cmd: '/help', desc: 'Показать список всех команд' },
@@ -113,30 +114,32 @@ export function saveOpenRouterKey(session, key) {
 }
 
 /**
- * Подключает Google AI Studio по API-ключу с валидацией.
+ * Подключает провайдера по API-ключу с валидацией.
  *
  * @param {object} session - Текущая сессия Duddy
- * @param {string} key - API-ключ Google AI Studio
+ * @param {string} providerId - Идентификатор провайдера
+ * @param {string} key - API-ключ
+ * @param {(key: string) => Promise<boolean>} validate - Функция валидации ключа
  * @returns {Promise<string>} Текст результата
  */
-export async function connectGoogle(session, key) {
-  await validateGoogleKey(key);
-  clearCatalogCache('google');
+async function connectWithKey(session, providerId, key, validate) {
+  await validate(key);
+  clearCatalogCache(providerId);
 
   const config = loadConfig();
-  const defaultModel = getProvider('google').defaultModel;
-  const targetModel = config.models?.google || defaultModel;
+  const provider = getProvider(providerId);
+  const targetModel = config.models?.[providerId] || provider.defaultModel;
 
-  session.provider = 'google';
+  session.provider = providerId;
   session.apiKey = key;
   session.model = targetModel;
   session.lastRoutedModel = '';
 
   saveConfig({
-    googleApiKey: key,
-    provider: 'google',
+    [provider.keyField]: key,
+    provider: providerId,
     model: targetModel,
-    models: { ...(config.models || {}), google: targetModel }
+    models: { ...(config.models || {}), [providerId]: targetModel }
   });
 
   const cached = findModel(targetModel);
@@ -144,11 +147,33 @@ export async function connectGoogle(session, key) {
     session.contextLength = cached.contextLength;
   } else {
     try {
-      session.contextLength = await getModelContextLength(targetModel, 'google', key);
+      session.contextLength = await getModelContextLength(targetModel, providerId, key);
     } catch {}
   }
 
-  return `Google AI Studio подключён. Модель: ${targetModel}`;
+  return `${provider.title} подключён. Модель: ${targetModel}`;
+}
+
+/**
+ * Подключает Google AI Studio по API-ключу с валидацией.
+ *
+ * @param {object} session - Текущая сессия Duddy
+ * @param {string} key - API-ключ Google AI Studio
+ * @returns {Promise<string>} Текст результата
+ */
+export async function connectGoogle(session, key) {
+  return connectWithKey(session, 'google', key, validateGoogleKey);
+}
+
+/**
+ * Подключает xAI по API-ключу с валидацией.
+ *
+ * @param {object} session - Текущая сессия Duddy
+ * @param {string} key - API-ключ xAI
+ * @returns {Promise<string>} Текст результата
+ */
+export async function connectXai(session, key) {
+  return connectWithKey(session, 'xai', key, validateXaiKey);
 }
 
 function makeProgressBar(percent, width = 16) {

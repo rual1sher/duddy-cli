@@ -45,7 +45,7 @@ ${chalk.bold("Options:")}
 ${chalk.bold("Interactive Commands:")}
   ${chalk.yellow("/model")}   Список моделей ваших провайдеров с поиском
   ${chalk.yellow("/effort")}  Set reasoning level (auto, low, medium, high)
-  ${chalk.yellow("/login")}   Login: OpenRouter or Google AI Studio
+  ${chalk.yellow("/login")}   Login: OpenRouter, Google AI Studio or xAI
   ${chalk.yellow("/clear")}   Clear conversation context
   ${chalk.yellow("/usage")}   Show session stats
   ${chalk.yellow("/exit")}    Quit session
@@ -74,7 +74,7 @@ ${chalk.bold("Interactive Commands:")}
     model:
       config.model ||
       config.models?.[provider] ||
-      (provider === "google" ? "gemini-3.5-flash" : "openrouter/free"),
+      getProvider(provider).defaultModel,
     reasoningEffort: config.reasoningEffort || "auto",
     temperature: config.temperature ?? 0.4,
     systemPrompt: DEFAULT_SYSTEM_PROMPT,

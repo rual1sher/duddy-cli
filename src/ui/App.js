@@ -65,6 +65,7 @@ export function App({ session }) {
 
   const {
     startGoogleLogin,
+    startXaiLogin,
     startOpenRouterBrowserLogin,
     openLoginPicker
   } = useLoginFlows({ session, setOverlay, addNote });
@@ -128,6 +129,7 @@ export function App({ session }) {
     setQueued,
     toolCtxRef,
     startGoogleLogin,
+    startXaiLogin,
     startOpenRouterBrowserLogin,
     openLoginPicker
   });

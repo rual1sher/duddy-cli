@@ -31,6 +31,7 @@ const DEFAULT_CONFIG = {
   provider: 'openrouter',
   apiKey: '',
   googleApiKey: '',
+  xaiApiKey: '',
   model: 'openrouter/free',
   models: {},
   reasoningEffort: 'auto',

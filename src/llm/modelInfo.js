@@ -8,7 +8,7 @@
  * @returns {Promise<object|null>}
  */
 export async function fetchKeyInfo(apiKey, provider = 'openrouter') {
-  if (!apiKey || provider === 'google') return null;
+  if (!apiKey || provider !== 'openrouter') return null;
   try {
     const res = await fetch('https://openrouter.ai/api/v1/auth/key', {
       headers: {
@@ -27,6 +27,7 @@ export async function fetchKeyInfo(apiKey, provider = 'openrouter') {
 }
 
 const googleContextCache = {};
+const xaiContextCache = {};
 let modelsContextCache = null;
 
 /**
@@ -61,6 +62,30 @@ export async function getModelContextLength(modelId = '', provider = 'openrouter
       } catch {}
     }
     return 1000000;
+  }
+
+  if (provider === 'xai') {
+    if (xaiContextCache[modelId]) {
+      return xaiContextCache[modelId];
+    }
+    if (apiKey) {
+      try {
+        const res = await fetch(`https://api.x.ai/v1/models/${encodeURIComponent(modelId)}`, {
+          headers: {
+            Authorization: `Bearer ${apiKey}`
+          },
+          signal: AbortSignal.timeout(3000)
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json && typeof json.context_length === 'number') {
+            xaiContextCache[modelId] = json.context_length;
+            return json.context_length;
+          }
+        }
+      } catch {}
+    }
+    return 500000;
   }
 
   if (!modelsContextCache) {

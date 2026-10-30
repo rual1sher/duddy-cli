@@ -26,6 +26,7 @@ const {
 } = await import('../src/models/status.js');
 
 const { isCodeUnfit } = await import('../src/models/filters.js');
+const { errorHint } = await import('../src/errors.js');
 
 test('isTemporaryOverload возвращает true для 503 и false для 400 без перегрузки', () => {
   assert.strictEqual(isTemporaryOverload(503), true);
@@ -38,6 +39,8 @@ test('classifyModelError определяет типовые ошибки по �
   assert.strictEqual(classifyModelError(200, 'User location is not supported in your region'), 'region');
   assert.strictEqual(classifyModelError(404, 'The model was not found'), 'retired');
   assert.strictEqual(classifyModelError(403), 'restricted');
+  assert.strictEqual(classifyModelError(403, "team doesn't have any credits"), null);
+  assert.strictEqual(classifyModelError(403, 'forbidden'), 'restricted');
   assert.strictEqual(classifyModelError(400, 'Invalid API key provided'), null);
 });
 
@@ -63,4 +66,11 @@ test('isCodeUnfit определяет модели, непригодные дл
   assert.strictEqual(isCodeUnfit('liquid/lfm-40b'), true);
   // Полноценная модель с кодом >= 20B
   assert.strictEqual(isCodeUnfit('qwen/qwen-2.5-coder-32b-instruct'), false);
+});
+
+test('errorHint для 403 с текстом про credits даёт подсказку про баланс xAI, а не «Ключ не подошёл»', () => {
+  const err = { status: 403, message: "team doesn't have any credits" };
+  const session = { provider: 'xai', apiKey: 'k' };
+  const hint = errorHint(err, session);
+  assert.strictEqual(hint, 'На балансе xAI недостаточно средств — пополните счёт или выберите другую модель через /model');
 });

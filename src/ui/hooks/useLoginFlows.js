@@ -1,9 +1,9 @@
 /**
- * @fileoverview Сценарии авторизации в провайдерах нейросетей (Google AI Studio, OpenRouter)
+ * @fileoverview Сценарии авторизации в провайдерах нейросетей (Google AI Studio, OpenRouter, xAI)
  */
 
 import { useCallback } from 'react';
-import { connectGoogle, saveOpenRouterKey } from '../../session-actions.js';
+import { connectGoogle, connectXai, saveOpenRouterKey } from '../../session-actions.js';
 import { startBrowserLogin, openBrowser } from '../../auth.js';
 
 /**
@@ -16,16 +16,16 @@ import { startBrowserLogin, openBrowser } from '../../auth.js';
  * @returns {object}
  */
 export function useLoginFlows({ session, setOverlay, addNote }) {
-  const startGoogleLogin = useCallback((onSuccess) => {
-    openBrowser('https://aistudio.google.com/apikey');
-    addNote('info', 'Откройте aistudio.google.com/apikey, создайте ключ и вставьте его');
+  const startApiKeyLogin = useCallback(({ url, note, title, connect }, onSuccess) => {
+    openBrowser(url);
+    addNote('info', note);
     setOverlay({
       kind: 'secret',
-      title: 'API-ключ Google AI Studio',
+      title,
       onSubmit: async (key) => {
         setOverlay({ kind: 'loading', text: 'Проверка ключа…' });
         try {
-          const msg = await connectGoogle(session, key);
+          const msg = await connect(session, key);
           addNote('success', msg);
           if (typeof onSuccess === 'function') {
             await onSuccess();
@@ -39,6 +39,24 @@ export function useLoginFlows({ session, setOverlay, addNote }) {
       onCancel: () => setOverlay(null)
     });
   }, [session, setOverlay, addNote]);
+
+  const startGoogleLogin = useCallback((onSuccess) => {
+    startApiKeyLogin({
+      url: 'https://aistudio.google.com/apikey',
+      note: 'Откройте aistudio.google.com/apikey, создайте ключ и вставьте его',
+      title: 'API-ключ Google AI Studio',
+      connect: connectGoogle
+    }, onSuccess);
+  }, [startApiKeyLogin]);
+
+  const startXaiLogin = useCallback((onSuccess) => {
+    startApiKeyLogin({
+      url: 'https://console.x.ai',
+      note: 'Откройте console.x.ai, создайте API-ключ и вставьте его',
+      title: 'API-ключ xAI',
+      connect: connectXai
+    }, onSuccess);
+  }, [startApiKeyLogin]);
 
   const startOpenRouterBrowserLogin = useCallback((onSuccess) => {
     const { url, result, cancel } = startBrowserLogin();
@@ -89,7 +107,8 @@ export function useLoginFlows({ session, setOverlay, addNote }) {
       items: [
         { label: 'OpenRouter — войти через браузер', hint: 'OAuth', value: 'openrouter_browser' },
         { label: 'OpenRouter — вставить ключ', hint: 'sk-or-...', value: 'openrouter_manual' },
-        { label: 'Google AI Studio — вставить ключ', hint: 'Gemini API', value: 'google' }
+        { label: 'Google AI Studio — вставить ключ', hint: 'Gemini API', value: 'google' },
+        { label: 'xAI (Grok) — вставить ключ', hint: 'XAI_API_KEY', value: 'xai' }
       ],
       onSelect: (choice) => {
         setOverlay(null);
@@ -99,14 +118,17 @@ export function useLoginFlows({ session, setOverlay, addNote }) {
           startOpenRouterManualLogin(onSuccess);
         } else if (choice === 'google') {
           startGoogleLogin(onSuccess);
+        } else if (choice === 'xai') {
+          startXaiLogin(onSuccess);
         }
       },
       onCancel: () => setOverlay(null)
     });
-  }, [setOverlay, startGoogleLogin, startOpenRouterBrowserLogin, startOpenRouterManualLogin]);
+  }, [setOverlay, startGoogleLogin, startXaiLogin, startOpenRouterBrowserLogin, startOpenRouterManualLogin]);
 
   return {
     startGoogleLogin,
+    startXaiLogin,
     startOpenRouterBrowserLogin,
     startOpenRouterManualLogin,
     openLoginPicker

@@ -3,6 +3,7 @@
  */
 
 import { noteModelError, UNAVAILABLE_REASONS } from './models/status.js';
+import { getProvider } from './providers.js';
 
 /**
  * Человекочитаемый текст ошибки: провайдеры кладут причину в JSON внутри message
@@ -77,6 +78,15 @@ export function errorHint(err, session) {
   }
 
   if (
+    status === 402 ||
+    msg.includes('402') ||
+    msg.includes('credits') ||
+    msg.includes('insufficient_quota')
+  ) {
+    return `На балансе ${getProvider(session?.provider).title} недостаточно средств — пополните счёт или выберите другую модель через /model`;
+  }
+
+  if (
     !session?.apiKey ||
     status === 401 ||
     status === 403 ||
@@ -88,15 +98,6 @@ export function errorHint(err, session) {
     (status === 400 && (msg.includes('api key') || msg.includes('api_key') || msg.includes('ключ')))
   ) {
     return 'Ключ не подошёл — выполните /login';
-  }
-
-  if (
-    status === 402 ||
-    msg.includes('402') ||
-    msg.includes('credits') ||
-    msg.includes('insufficient_quota')
-  ) {
-    return 'На балансе OpenRouter недостаточно средств для этой модели — /model';
   }
 
   if (

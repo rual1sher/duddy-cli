@@ -1,5 +1,5 @@
 /**
- * @fileoverview Провайдеры AI для Duddy CLI (OpenRouter и Google AI Studio)
+ * @fileoverview Провайдеры AI для Duddy CLI (OpenRouter, Google AI Studio и xAI)
  */
 
 /**
@@ -37,6 +37,16 @@ export const PROVIDERS = {
     envVars: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
     keyUrl: 'https://aistudio.google.com/apikey',
     defaultModel: 'gemini-3.5-flash'
+  },
+  xai: {
+    id: 'xai',
+    title: 'xAI',
+    baseURL: 'https://api.x.ai/v1',
+    headers: {},
+    keyField: 'xaiApiKey',
+    envVars: ['XAI_API_KEY'],
+    keyUrl: 'https://console.x.ai',
+    defaultModel: 'grok-4.7'
   }
 };
 
@@ -72,15 +82,19 @@ export function getProviderKey(providerId, config = {}) {
 /**
  * Автоматически определить провайдера по ID модели.
  * Возвращает 'google', если id начинается с 'gemini-' или 'gemma-' и не содержит '/',
+ * 'xai', если id начинается с 'grok-' и не содержит '/',
  * иначе возвращает 'openrouter'.
  *
  * @param {string} modelId - Идентификатор модели
- * @returns {'google' | 'openrouter'}
+ * @returns {'google' | 'xai' | 'openrouter'}
  */
 export function detectProviderForModel(modelId = '') {
   const m = String(modelId).toLowerCase().trim();
   if ((m.startsWith('gemini-') || m.startsWith('gemma-')) && !m.includes('/')) {
     return 'google';
+  }
+  if (m.startsWith('grok-') && !m.includes('/')) {
+    return 'xai';
   }
   return 'openrouter';
 }

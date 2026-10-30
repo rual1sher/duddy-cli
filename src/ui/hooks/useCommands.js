@@ -13,7 +13,7 @@ import {
 import { listModels } from '../../models/catalog.js';
 import { UNAVAILABLE_REASONS } from '../../models/status.js';
 import { loadConfig } from '../../config.js';
-import { detectProviderForModel, getProviderKey } from '../../providers.js';
+import { PROVIDERS, getProvider, detectProviderForModel, getProviderKey } from '../../providers.js';
 import { CLEAR_SCREEN } from './useResizeRedraw.js';
 
 const COMMAND_ALIASES = {
@@ -34,24 +34,20 @@ const COMMAND_ALIASES = {
 /**
  * Применяет выбор модели с повторной попыткой после авторизации при необходимости
  */
-async function applyModelChoice(id, provider, { session, addNote, startGoogleLogin, openLoginPicker }) {
+async function applyModelChoice(id, provider, { session, addNote, startGoogleLogin, startXaiLogin, openLoginPicker }) {
   const res = await selectModel(session, id, provider);
   if (res.needsLogin) {
-    if (res.needsLogin === 'google') {
-      startGoogleLogin(async () => {
-        const retry = await selectModel(session, id, 'google');
-        if (retry.ok) {
-          addNote('success', retry.message);
-        }
-      });
-    } else {
-      openLoginPicker(async () => {
-        const retry = await selectModel(session, id, 'openrouter');
-        if (retry.ok) {
-          addNote('success', retry.message);
-        }
-      });
-    }
+    const startLogin = res.needsLogin === 'google'
+      ? startGoogleLogin
+      : res.needsLogin === 'xai'
+        ? startXaiLogin
+        : openLoginPicker;
+    startLogin(async () => {
+      const retry = await selectModel(session, id, res.needsLogin);
+      if (retry.ok) {
+        addNote('success', retry.message);
+      }
+    });
     return;
   }
   if (res.ok) {
@@ -126,11 +122,15 @@ function changeEffort(arg, { session, setOverlay, addNote }) {
 /**
  * Выполняет сценарий входа в провайдер
  */
-function login(arg, { session, addNote, startGoogleLogin, startOpenRouterBrowserLogin, openLoginPicker }) {
+function login(arg, { session, addNote, startGoogleLogin, startXaiLogin, startOpenRouterBrowserLogin, openLoginPicker }) {
   if (arg) {
     const lower = arg.toLowerCase();
     if (lower === 'google' || lower === 'gemini' || lower === 'aistudio') {
       startGoogleLogin();
+      return;
+    }
+    if (lower === 'xai' || lower === 'grok') {
+      startXaiLogin();
       return;
     }
     if (lower === 'browser' || lower === 'web') {
@@ -174,7 +174,7 @@ async function pickModel(ctx) {
   }
 
   const cfg = loadConfig();
-  const hasBoth = Boolean(getProviderKey('google', cfg) && getProviderKey('openrouter', cfg));
+  const connected = Object.keys(PROVIDERS).filter(id => getProviderKey(id, cfg));
 
   const cur = models.find(m => m.id === session.model);
   const allModels = cur
@@ -202,7 +202,7 @@ async function pickModel(ctx) {
       hint: m.id,
       value: { id: m.id, provider: m.provider },
       current: m.id === session.model,
-      group: hasBoth ? (m.provider === 'google' ? 'Google' : 'OpenRouter') : undefined,
+      group: connected.length > 1 ? getProvider(m.provider).title : undefined,
       disabled,
       busy,
       reason
@@ -240,6 +240,7 @@ export function useCommands({
   setQueued,
   toolCtxRef,
   startGoogleLogin,
+  startXaiLogin,
   startOpenRouterBrowserLogin,
   openLoginPicker
 }) {
@@ -260,6 +261,7 @@ export function useCommands({
       setQueued,
       toolCtxRef,
       startGoogleLogin,
+      startXaiLogin,
       startOpenRouterBrowserLogin,
       openLoginPicker
     };
@@ -311,6 +313,7 @@ export function useCommands({
     setQueued,
     toolCtxRef,
     startGoogleLogin,
+    startXaiLogin,
     startOpenRouterBrowserLogin,
     openLoginPicker
   ]);

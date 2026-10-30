@@ -177,6 +177,8 @@ export function classifyModelError(status, message = '') {
   if (status === 404 && (msg.includes('no longer available') || msg.includes('not found') || msg.includes('does not exist'))) {
     return 'retired';
   }
+  // У xAI 403 без кредитов — проблема счёта, а не модели; метка скрыла бы модель на неделю и после пополнения
+  if (status === 403 && msg.includes('credit')) return null;
   if (status === 403) {
     return 'restricted';
   }

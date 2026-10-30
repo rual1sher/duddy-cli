@@ -2,7 +2,7 @@
  * @fileoverview Каталог моделей, кэширование и предоставление отсортированных списков
  */
 
-import { getProviderKey } from '../providers.js';
+import { PROVIDERS, getProviderKey } from '../providers.js';
 import {
   readStatus,
   checkModelBusy,
@@ -17,15 +17,13 @@ import {
 } from './probe.js';
 import { fetchGoogleModels } from './google.js';
 import { fetchOpenRouterModels } from './openrouter.js';
+import { fetchXaiModels } from './xai.js';
 
 /**
  * Кэш каталога моделей в памяти модуля
- * @type {{ google: Array<object>|null, openrouter: Array<object>|null }}
+ * @type {Record<string, Array<object>|null>}
  */
-export const catalogCache = {
-  google: null,
-  openrouter: null
-};
+export const catalogCache = Object.fromEntries(Object.keys(PROVIDERS).map(id => [id, null]));
 
 setOnModelUnavailable((provider, id, reason) => {
   if (Array.isArray(catalogCache[provider])) {
@@ -44,8 +42,9 @@ export function clearCatalogCache(provider) {
   if (provider) {
     catalogCache[provider] = null;
   } else {
-    catalogCache.google = null;
-    catalogCache.openrouter = null;
+    for (const id of Object.keys(catalogCache)) {
+      catalogCache[id] = null;
+    }
   }
 }
 
@@ -58,7 +57,7 @@ export function clearCatalogCache(provider) {
 export function findModel(id) {
   if (!id) return null;
   const cleanId = String(id).replace(/^models\//, '');
-  for (const provider of ['google', 'openrouter']) {
+  for (const provider of Object.keys(catalogCache)) {
     const list = catalogCache[provider];
     if (Array.isArray(list)) {
       const found = list.find(m => m.id === cleanId || m.id === id);
@@ -71,7 +70,7 @@ export function findModel(id) {
 /**
  * Загрузить модели одного провайдера: кэш, API-запрос, пробинг и разметка недоступности
  *
- * @param {string} provider - Идентификатор провайдера ('google'|'openrouter')
+ * @param {string} provider - Идентификатор провайдера
  * @param {Record<string, string>} keys - Ключи провайдеров
  * @returns {Promise<{ provider: string, models: Array<object> }>}
  */
@@ -100,6 +99,8 @@ async function loadProviderModels(provider, keys) {
       );
       models = models.filter(m => !freeTwinIds.has(`${m.id}:free`));
     }
+  } else if (provider === 'xai') {
+    models = await fetchXaiModels(key);
   }
 
   if (probe && needsProbe(provider)) {
@@ -194,18 +195,15 @@ function sortByAvailability(models, activeProvider) {
  * @returns {Promise<Array<{ id: string, name: string, provider: string, contextLength?: number, free?: boolean, unavailable?: string|null, busy?: boolean }>>}
  */
 export async function listModels(config = {}) {
-  const providersToFetch = [];
-  const googleKey = getProviderKey('google', config);
-  const openrouterKey = getProviderKey('openrouter', config);
-
-  if (googleKey) providersToFetch.push('google');
-  if (openrouterKey) providersToFetch.push('openrouter');
+  const keys = Object.fromEntries(
+    Object.keys(PROVIDERS).map(id => [id, getProviderKey(id, config)])
+  );
+  const providersToFetch = Object.keys(PROVIDERS).filter(id => Boolean(keys[id]));
 
   if (providersToFetch.length === 0) {
     return [];
   }
 
-  const keys = { google: googleKey, openrouter: openrouterKey };
   const results = await Promise.allSettled(
     providersToFetch.map(provider => loadProviderModels(provider, keys))
   );
@@ -218,9 +216,10 @@ export async function listModels(config = {}) {
   }
 
   const activeProvider = config.provider || 'openrouter';
-  const order = activeProvider === 'google'
-    ? ['google', 'openrouter']
-    : ['openrouter', 'google'];
+  const order = [
+    activeProvider,
+    ...Object.keys(PROVIDERS).filter(id => id !== activeProvider)
+  ];
 
   const combined = [];
   for (const p of order) {
