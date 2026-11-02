@@ -6,6 +6,8 @@ import { getProviderKey } from './providers.js';
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'duddy');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
+let _brokenConfigWarned = false;
+
 export const DEFAULT_SYSTEM_PROMPT = `You are Duddy, a friendly terminal AI assistant for developers and DevOps engineers. You work inside the user's current project folder.
 
 TONE
@@ -24,13 +26,27 @@ ANSWER FORMAT (pick silently from the request)
 FILE TOOLS
 - When the user asks to create, inspect, change or delete files, call the tools instead of only printing code.
 - Use create_file for new files and full rewrites; use edit_file only for small patches after read_file, copying the exact lines.
+- Overwriting an existing file with create_file requires reading the whole file with read_file in the same turn, so prefer edit_file.
+- read_file returns up to 40000 characters per call. If the result says it was cut, continue with the given offset or start_line before relying on the rest of the file.
 - Always pass an explicit file path, never "." or an empty path.
-- Don't call tools for greetings or general questions.`;
+- Don't read secrets (.env, private keys, credentials) unless the user asks: each access needs their explicit approval.
+- Don't call tools for greetings or general questions.
+
+RUNNING COMMANDS
+- Use bash to run tests, builds, linters and git. After changing code, run the relevant tests and fix what fails before finishing.
+- Use read_file, grep and glob to read and search: they are cheaper and safer than cat, find or grep in bash.
+- Commands have no terminal and no input: nothing interactive, no servers or watchers.
+
+SAVING TOKENS
+- Start from the project context below. Don't walk folders or read files to learn the project.
+- Find code with grep or glob first, then read only the lines you need with read_file start_line and max_lines. Read a whole file only when you need all of it.
+- Don't read again what is already in the conversation. Old results may be shortened: re-read only the lines you need.`;
 
 const DEFAULT_CONFIG = {
   provider: 'openrouter',
   apiKey: '',
   googleApiKey: '',
+  xaiApiKey: '',
   model: 'openrouter/free',
   models: {},
   reasoningEffort: 'auto',
@@ -49,21 +65,29 @@ export function loadConfig() {
         // Ignore chmod errors (e.g. Windows)
       }
       const data = fs.readFileSync(CONFIG_FILE, 'utf8');
-      const parsed = JSON.parse(data);
-      if ('maxTokens' in parsed) {
-        delete parsed.maxTokens;
+      try {
+        const parsed = JSON.parse(data);
+        if ('maxTokens' in parsed) {
+          delete parsed.maxTokens;
+        }
+        if ('systemPrompt' in parsed) {
+          delete parsed.systemPrompt;
+        }
+        return {
+          ...DEFAULT_CONFIG,
+          ...parsed,
+          models: { ...DEFAULT_CONFIG.models, ...(parsed.models || {}) }
+        };
+      } catch (err) {
+        // Parse error: warn once per process, then fall through to defaults
+        if (!_brokenConfigWarned) {
+          _brokenConfigWarned = true;
+          process.stderr.write(`WARNING: config.json не удалось разобрать (повреждён): ${CONFIG_FILE}\n`);
+        }
       }
-      if ('systemPrompt' in parsed) {
-        delete parsed.systemPrompt;
-      }
-      return {
-        ...DEFAULT_CONFIG,
-        ...parsed,
-        models: { ...DEFAULT_CONFIG.models, ...(parsed.models || {}) }
-      };
     }
   } catch (err) {
-    // If parse error, fallback to defaults
+    // I/O error, fallback to defaults
   }
   return { ...DEFAULT_CONFIG };
 }
@@ -73,11 +97,42 @@ export function saveConfig(updates) {
     if (!fs.existsSync(CONFIG_DIR)) {
       fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
     }
+
+    // If existing config is unparseable, rename it to .broken-<timestamp> before overwriting
+    if (fs.existsSync(CONFIG_FILE)) {
+      let parseable = true;
+      try {
+        JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+      } catch (err) {
+        parseable = false;
+      }
+      // Rename errors must abort the save: writing anyway would lose the keys
+      if (!parseable) {
+        const brokenPath = `${CONFIG_FILE}.broken-${Date.now()}`;
+        fs.renameSync(CONFIG_FILE, brokenPath);
+        fs.chmodSync(brokenPath, 0o600);
+      }
+    }
+
     const current = loadConfig();
     const updated = { ...current, ...updates };
     delete updated.systemPrompt;
     delete updated.maxTokens;
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(updated, null, 2), { encoding: 'utf8', mode: 0o600 });
+
+    // Atomic write: write to temp file, then rename
+    const tmpFile = `${CONFIG_FILE}.tmp-${process.pid}`;
+    try {
+      fs.writeFileSync(tmpFile, JSON.stringify(updated, null, 2), { encoding: 'utf8', mode: 0o600 });
+      fs.renameSync(tmpFile, CONFIG_FILE);
+    } catch (err) {
+      try {
+        fs.unlinkSync(tmpFile);
+      } catch {
+        // Ignore cleanup errors
+      }
+      throw err;
+    }
+
     try {
       fs.chmodSync(CONFIG_FILE, 0o600);
     } catch (err) {

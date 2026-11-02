@@ -1,67 +1,98 @@
 #!/usr/bin/env node
 
-import fs from 'node:fs';
-import { loadConfig, getActiveApiKey, DEFAULT_SYSTEM_PROMPT } from '../src/config.js';
-import { getProvider } from '../src/providers.js';
-import { startTui } from '../src/ui/index.js';
-import { runAgentTurn } from '../src/agent.js';
-import { handleModelError, errorText } from '../src/errors.js';
-import { createPlainRenderer } from '../src/plainRenderer.js';
-import { formatDuration } from '../src/formatter.js';
-import chalk from 'chalk';
+import fs from "node:fs";
+import { randomUUID } from "node:crypto";
+import { loadConfig, getActiveApiKey, DEFAULT_SYSTEM_PROMPT } from "../src/config.js";
+import { getProvider } from "../src/providers.js";
+import { startTui } from "../src/ui/index.js";
+import { runAgentTurn } from "../src/agent.js";
+import { handleModelError, errorText } from "../src/errors.js";
+import { createPlainRenderer } from "../src/plainRenderer.js";
+import { formatDuration, formatTurnUsage } from "../src/formatter.js";
+import { buildProjectContext } from "../src/projectContext.js";
+import { undoLastCheckpoint } from "../src/tools/checkpoints.js";
+import chalk from "chalk";
 
-const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 async function readStdin() {
   const chunks = [];
   for await (const chunk of process.stdin) {
     chunks.push(chunk);
   }
-  return Buffer.concat(chunks).toString('utf8');
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 async function main() {
   const config = loadConfig();
-  const provider = config.provider || 'openrouter';
+  const provider = config.provider || "openrouter";
   const apiKey = getActiveApiKey(config);
 
   const rawArgs = process.argv.slice(2);
 
   // Handle flags
-  if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
+  if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
     console.log(`
-${chalk.bold.cyan('Duddy')} - Terminal AI Assistant for Linux & DevOps
+${chalk.bold.cyan("Duddy")} - Terminal AI Assistant for Linux & DevOps
 
-${chalk.bold('Usage:')}
-  ${chalk.green('duddy')}                       Start interactive chat session (like agy)
+${chalk.bold("Usage:")}
+  ${chalk.green("duddy")}                       Start interactive chat session (like agy)
   ${chalk.green('duddy "your question"')}       Ask a quick one-off question
   ${chalk.green('cat error.log | duddy "explain"')} Analyze piped input
 
-${chalk.bold('Options:')}
-  ${chalk.yellow('-y, --yes')}   Automatically confirm all tool actions without prompt
-  ${chalk.yellow('-h, --help')}  Show help
-  ${chalk.yellow('-v, --version')} Show version
+${chalk.bold("Options:")}
+  ${chalk.yellow("-y, --yes")}   Automatically confirm all tool actions without prompt
+  ${chalk.yellow("-h, --help")}  Show help
+  ${chalk.yellow("-v, --version")} Show version
+  ${chalk.yellow("--undo")}    Откатить последний ход агента в текущей папке
 
-${chalk.bold('Interactive Commands:')}
-  ${chalk.yellow('/model')}   Список моделей ваших провайдеров с поиском
-  ${chalk.yellow('/effort')}  Set reasoning level (auto, low, medium, high)
-  ${chalk.yellow('/login')}   Login: OpenRouter or Google AI Studio
-  ${chalk.yellow('/clear')}   Clear conversation context
-  ${chalk.yellow('/usage')}   Show session stats
-  ${chalk.yellow('/exit')}    Quit session
+${chalk.bold("Interactive Commands:")}
+  ${chalk.yellow("/model")}   Список моделей ваших провайдеров с поиском
+  ${chalk.yellow("/effort")}  Set reasoning level (auto, low, medium, high)
+  ${chalk.yellow("/login")}   Login: OpenRouter, Google AI Studio or xAI
+  ${chalk.yellow("/clear")}   Clear conversation context
+  ${chalk.yellow("/context")} Show context window and history
+  ${chalk.yellow("/usage")}   Show model limits and token spend
+  ${chalk.yellow("/undo")}    Откатить последний ход агента (изменения файлов)
+  ${chalk.yellow("/exit")}    Quit session
 `);
     process.exit(0);
   }
 
-  if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
+  if (rawArgs.includes("--version") || rawArgs.includes("-v")) {
     console.log(`duddy v${pkg.version}`);
+    process.exit(0);
+  }
+
+  if (rawArgs.includes("--undo")) {
+    const result = await undoLastCheckpoint(fs.realpathSync(process.cwd()));
+    if (result === null) {
+      console.log("Нечего отменять.");
+      process.exit(1);
+    }
+    if (result.restored.length > 0) {
+      console.log("Восстановлено:");
+      for (const p of result.restored) {
+        console.log(`  ${p}`);
+      }
+    }
+    if (result.conflicts.length > 0) {
+      console.log("Конфликты (файлы изменились после хода, не тронуты):");
+      for (const p of result.conflicts) {
+        console.log(`  ${p}`);
+      }
+      if (result.backupDir) {
+        console.log(`Резервные копии: ${result.backupDir}`);
+      }
+      process.exit(1);
+    }
     process.exit(0);
   }
 
   let autoApprove = false;
   const args = [];
   for (const arg of rawArgs) {
-    if (arg === '--yes' || arg === '-y') {
+    if (arg === "--yes" || arg === "-y") {
       autoApprove = true;
     } else {
       args.push(arg);
@@ -69,33 +100,41 @@ ${chalk.bold('Interactive Commands:')}
   }
 
   const session = {
+    id: randomUUID(),
     provider,
     apiKey,
-    model: config.model || config.models?.[provider] || (provider === 'google' ? 'gemini-3.5-flash' : 'openrouter/free'),
-    reasoningEffort: config.reasoningEffort || 'auto',
+    model:
+      config.model ||
+      config.models?.[provider] ||
+      getProvider(provider).defaultModel,
+    reasoningEffort: config.reasoningEffort || "auto",
     temperature: config.temperature ?? 0.4,
-    systemPrompt: DEFAULT_SYSTEM_PROMPT,
+    systemPrompt: DEFAULT_SYSTEM_PROMPT + (await buildProjectContext(process.cwd())),
     messages: [],
-    autoApprove
+    autoApprove,
   };
 
   // Check if data is being piped via stdin (e.g. cat file.log | duddy "explain")
-  let pipedData = '';
+  let pipedData = "";
   if (!process.stdin.isTTY) {
     pipedData = await readStdin();
   }
 
   // One-shot mode if arguments or piped data exist
   if (args.length > 0 || pipedData.trim()) {
-    const userPrompt = args.join(' ');
+    const userPrompt = args.join(" ");
     const combinedContent = pipedData.trim()
-      ? `${userPrompt ? userPrompt + '\n\n' : ''}Context / Input:\n\`\`\`\n${pipedData.trim()}\n\`\`\``
+      ? `${userPrompt ? userPrompt + "\n\n" : ""}Context / Input:\n\`\`\`\n${pipedData.trim()}\n\`\`\``
       : userPrompt;
 
     if (!session.apiKey) {
       const p = getProvider(session.provider);
-      const envHint = p.envVars.join(' или ');
-      console.error(chalk.red(`Error: ${p.title} API key not configured. Run \`duddy\` interactively or set ${envHint}.`));
+      const envHint = p.envVars.join(" или ");
+      console.error(
+        chalk.red(
+          `Error: ${p.title} API key not configured. Run \`duddy\` interactively or set ${envHint}.`,
+        ),
+      );
       process.exit(1);
     }
 
@@ -103,14 +142,15 @@ ${chalk.bold('Interactive Commands:')}
     const renderer = createPlainRenderer(session, { interactive });
     const toolCtx = {
       autoApprove: !!session.autoApprove,
+      allowCommands: !!session.autoApprove,
       canPrompt: interactive,
-      ...renderer.toolCtxExtras
+      ...renderer.toolCtxExtras,
     };
 
     const startTime = Date.now();
     const messagesToSend = [
-      { role: 'system', content: session.systemPrompt },
-      { role: 'user', content: combinedContent }
+      { role: "system", content: session.systemPrompt },
+      { role: "user", content: combinedContent },
     ];
 
     const controller = new AbortController();
@@ -120,24 +160,28 @@ ${chalk.bold('Interactive Commands:')}
       }
       controller.abort();
     };
-    process.on('SIGINT', onSigint);
+    process.on("SIGINT", onSigint);
 
     try {
-      const { lastUsage, elapsedMs } = await runAgentTurn({
+      const { turnUsage, elapsedMs } = await runAgentTurn({
         session,
         messages: messagesToSend,
         toolCtx,
         signal: controller.signal,
-        events: renderer.events
+        events: renderer.events,
       });
 
-      const durationStr = formatDuration(elapsedMs ?? (Date.now() - startTime));
-      const tokFormatted = (lastUsage?.total_tokens ?? 0).toLocaleString('ru-RU').replace(/\s/g, ' ');
-      const tokenInfo = lastUsage?.total_tokens ? ` · ${tokFormatted} tok` : '';
-      console.log(chalk.hex('#334155')('╰─ ') + chalk.hex('#10b981')('✔ Готово') + chalk.hex('#64748b')(` · ${durationStr}${tokenInfo}\n`));
+      const durationStr = formatDuration(elapsedMs ?? Date.now() - startTime);
+      const usageText = formatTurnUsage(turnUsage);
+      const tokenInfo = usageText ? ` · ${usageText}` : "";
+      console.log(
+        chalk.hex("#334155")("╰─ ") +
+          chalk.hex("#10b981")("✔ Готово") +
+          chalk.hex("#64748b")(` · ${durationStr}${tokenInfo}\n`),
+      );
     } catch (err) {
-      if (controller.signal.aborted || err?.name === 'AbortError') {
-        console.error(chalk.yellow('\nОстановлено'));
+      if (controller.signal.aborted || err?.name === "AbortError") {
+        console.error(chalk.yellow("\nОстановлено"));
         process.exitCode = 130;
       } else {
         console.error(chalk.red(`\nError: ${errorText(err)}`));
@@ -146,7 +190,7 @@ ${chalk.bold('Interactive Commands:')}
         process.exit(1);
       }
     } finally {
-      process.off('SIGINT', onSigint);
+      process.off("SIGINT", onSigint);
       renderer.finish();
     }
     if (process.exitCode === 130) {
@@ -157,7 +201,11 @@ ${chalk.bold('Interactive Commands:')}
 
   // If stdin is not TTY and no arguments or piped data provided
   if (!process.stdin.isTTY) {
-    console.error(chalk.yellow('Интерактивный режим недоступен без TTY. Для разового запроса используйте: duddy "вопрос"'));
+    console.error(
+      chalk.yellow(
+        'Интерактивный режим недоступен без TTY. Для разового запроса используйте: duddy "вопрос"',
+      ),
+    );
     process.exit(1);
   }
 
@@ -166,6 +214,6 @@ ${chalk.bold('Interactive Commands:')}
 }
 
 main().catch((err) => {
-  console.error(chalk.red('Fatal error:'), err);
+  console.error(chalk.red("Fatal error:"), err);
   process.exit(1);
 });

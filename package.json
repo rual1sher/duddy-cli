@@ -1,6 +1,6 @@
 {
   "name": "duddy",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Terminal AI Assistant for Linux & DevOps",
   "type": "module",
   "bin": {
@@ -8,6 +8,9 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
   },
   "files": [
     "bin",

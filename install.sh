@@ -39,6 +39,11 @@ if ! command -v npm >/dev/null 2>&1; then
     exit 1
 fi
 
+if ! command -v rg >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠️  Предупреждение: ripgrep (rg) не установлен.${NC}"
+    echo -e "Без ripgrep не работает поиск по проекту. Установка: https://github.com/BurntSushi/ripgrep#installation"
+fi
+
 # 2. Determine target directories
 INSTALL_DIR="$HOME/.local/share/duddy"
 BIN_DIR="$HOME/.local/bin"

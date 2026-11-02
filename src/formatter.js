@@ -125,3 +125,16 @@ export class AnimatedTerminalRenderer {
     }
   }
 }
+
+/**
+ * Форматирует расход токенов за весь ход: вход всех шагов, выход и попадания в кэш
+ *
+ * @param {{ input: number, output: number, cached: number }} [usage] - Токены хода
+ * @returns {string} Строка вида "↑ 12.3k ↓ 800 · кэш 9.0k" или пустая
+ */
+export function formatTurnUsage(usage) {
+  if (!usage?.input) return '';
+  const short = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+  const cached = usage.cached ? ` · кэш ${short(usage.cached)}` : '';
+  return `↑ ${short(usage.input)} ↓ ${short(usage.output)}${cached}`;
+}

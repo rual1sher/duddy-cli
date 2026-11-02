@@ -49,7 +49,8 @@ export function StatusBar({ status, session, phase, startedAt, getLastActivity, 
     const routedModel = session?.lastRoutedModel;
     const model = session?.model || 'model';
     const label = routedModel && routedModel !== model ? `${model} → ${routedModel}` : model;
-    const isSlow = !waitingForUser && now - (getLastActivity?.() || startedAt || now) > 20000;
+    const silent = now - (getLastActivity?.() || startedAt || now);
+    const isSlow = !waitingForUser && phase !== 'tools' && silent > 20000;
 
     return h(
       Box,
@@ -59,7 +60,7 @@ export function StatusBar({ status, session, phase, startedAt, getLastActivity, 
         { wrap: 'truncate-end' },
         h(Text, { color: '#38bdf8' }, `${spinnerChar} ${phaseName}… ${formatDuration(elapsed)}`),
         isSlow
-          ? h(Text, { color: '#f59e0b' }, ' · долго: провайдер может быть перегружен')
+          ? h(Text, { color: '#f59e0b' }, ` · нет ответа ${formatDuration(silent)}`)
           : null,
         h(Text, { color: '#64748b', dimColor: true }, ` · ${label}`),
         queuedCount > 0
@@ -113,26 +114,34 @@ export function StatusBar({ status, session, phase, startedAt, getLastActivity, 
     { paddingX: 1, flexDirection: 'row' },
     h(
       Box,
-      { flexDirection: 'row' },
-      h(Text, { bold: true, color: '#38bdf8' }, model),
-      routedSuffix ? h(Text, { color: '#64748b' }, routedSuffix) : null,
-      h(Text, { color: '#64748b', dimColor: true }, ` · ${provider.title}`),
-      effortSuffix ? h(Text, { color: '#64748b', dimColor: true }, effortSuffix) : null
+      { flexShrink: 1 },
+      h(
+        Text,
+        { wrap: 'truncate-end' },
+        h(Text, { bold: true, color: '#38bdf8' }, model),
+        routedSuffix ? h(Text, { color: '#64748b' }, routedSuffix) : null,
+        h(Text, { color: '#64748b', dimColor: true }, ` · ${provider.title}`),
+        effortSuffix ? h(Text, { color: '#64748b', dimColor: true }, effortSuffix) : null
+      )
     ),
     h(Spacer, null),
     h(
       Box,
-      { flexDirection: 'row' },
-      rightParts.length > 0
-        ? rightParts.map((el, i) =>
-            h(
-              React.Fragment,
-              { key: i },
-              i > 0 ? h(Text, { color: '#64748b', dimColor: true }, ' · ') : null,
-              el
+      { flexShrink: 1, marginLeft: 2 },
+      h(
+        Text,
+        { wrap: 'truncate-end' },
+        rightParts.length > 0
+          ? rightParts.map((el, i) =>
+              h(
+                React.Fragment,
+                { key: i },
+                i > 0 ? h(Text, { color: '#64748b', dimColor: true }, ' · ') : null,
+                el
+              )
             )
-          )
-        : h(Text, { color: '#64748b', dimColor: true }, 'новый диалог')
+          : h(Text, { color: '#64748b', dimColor: true }, 'новый диалог')
+      )
     )
   );
 }
