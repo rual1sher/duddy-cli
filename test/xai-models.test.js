@@ -1,6 +1,6 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchXaiModels, validateXaiKey } from '../src/models/xai.js';
+import { fetchXaiModels, validateXaiKey, describeXaiError } from '../src/models/xai.js';
 import { fetchKeyInfo, getModelContextLength } from '../src/llm/modelInfo.js';
 
 const originalFetch = globalThis.fetch;
@@ -58,12 +58,13 @@ test('fetchXaiModels фильтрует неподходящие модели и
 test('fetchXaiModels выбрасывает понятную ошибку при статусе 401', async () => {
   globalThis.fetch = async () => ({
     ok: false,
-    status: 401
+    status: 401,
+    text: async () => ''
   });
 
   await assert.rejects(
     async () => fetchXaiModels('invalid-key'),
-    { message: 'Ключ xAI не подошёл' }
+    { message: /не принял ключ/ }
   );
 });
 
@@ -96,12 +97,13 @@ test('fetchXaiModels возвращает модели без contextLength, е�
 test('validateXaiKey выбрасывает ошибку при статусе 401', async () => {
   globalThis.fetch = async () => ({
     ok: false,
-    status: 401
+    status: 401,
+    text: async () => ''
   });
 
   await assert.rejects(
     async () => validateXaiKey('bad-key'),
-    { message: 'Ключ xAI не подошёл' }
+    { message: /не принял ключ/ }
   );
 });
 
@@ -137,4 +139,60 @@ test('getModelContextLength для xai запрашивает api.x.ai и не �
   assert.strictEqual(requestedUrls.length, 1);
   assert.ok(requestedUrls[0].startsWith('https://api.x.ai/v1/models/'));
   assert.ok(!requestedUrls.some(u => u.includes('openrouter.ai')));
+});
+
+test('describeXaiError: 400 и body с некорректным ключом формирует понятную ошибку', () => {
+  const err = describeXaiError(400, '{"error":"Incorrect API key provided: xa***"}', 'some-key');
+  assert.ok(err.includes('не принял ключ'));
+  assert.ok(err.includes('Ответ xAI: Incorrect API key'));
+});
+
+test('describeXaiError: 403 и body без кредитов указывает на отсутствие средств', () => {
+  const err = describeXaiError(403, '{"code":"x","error":"Your newly created team doesn\'t have any credits yet."}', 'some-key');
+  assert.ok(err.includes('нет средств'));
+});
+
+test('describeXaiError: 403 и body Forbidden сообщает об ограничении доступа', () => {
+  const err = describeXaiError(403, '{"error":"Forbidden"}', 'some-key');
+  assert.ok(err.includes('запретил доступ'));
+});
+
+test('describeXaiError: 429 и 503 с пустым body', () => {
+  const err429 = describeXaiError(429, '', 'some-key');
+  assert.ok(err429.includes('Слишком много'));
+
+  const err503 = describeXaiError(503, '', 'some-key');
+  assert.ok(err503.includes('HTTP 503'));
+  assert.ok(!err503.includes('Ответ xAI'));
+});
+
+test('describeXaiError: маскирует переданный ключ в причине ошибки', () => {
+  const err = describeXaiError(400, 'bad xai-secret123 text', 'xai-secret123');
+  assert.ok(!err.includes('xai-secret123'));
+  assert.ok(err.includes('***'));
+});
+
+test('describeXaiError: длинное тело ответа обрезается и результат короче 400 символов', () => {
+  const body = 'x'.repeat(500);
+  const err = describeXaiError(500, body, 'some-key');
+  assert.ok(err.length < 400);
+});
+
+test('validateXaiKey при 403 с кредитами отклоняет с сообщением, содержащим "нет средств"', async () => {
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 403,
+    text: async () => JSON.stringify({ code: 'x', error: "Your newly created team doesn't have any credits yet." })
+  });
+
+  await assert.rejects(
+    async () => validateXaiKey('bad-key'),
+    { message: /нет средств/ }
+  );
+});
+
+test('describeXaiError маскирует ключ, попавший на границу обрезки текста', () => {
+  const key = 'xai-secret-key-1234567890';
+  const text = describeXaiError(403, 'x'.repeat(190) + key, key);
+  assert.ok(!text.includes('xai-secret'), text);
 });

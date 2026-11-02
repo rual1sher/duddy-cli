@@ -4,26 +4,26 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { runAgentTurn } from '../../agent.js';
-import { formatDuration } from '../../formatter.js';
+import { formatDuration, formatTurnUsage } from '../../formatter.js';
 import { commitTurn, commitFailedTurn } from '../../history.js';
 import { handleModelError, errorText } from '../../errors.js';
 import { clearModelBusy } from '../../models/status.js';
 import { fetchKeyInfo } from '../../llm/modelInfo.js';
 import { buildUserContent } from '../../images.js';
 import { describeToolStart } from '../../toolDisplay.js';
+import { recordRequest } from '../../models/limits.js';
 
 /**
  * Формирует запись о завершении агентного хода с длительностью, токенами и списком изменений
  *
  * @param {number} turnElapsed - Длительность хода в мс
- * @param {object|null} lastUsage - Информация об использовании токенов
+ * @param {{ input: number, output: number, cached: number }} [turnUsage] - Токены всего хода
  * @param {Map<string, string>} changesMap - Карта изменений файлов
  * @returns {object}
  */
-function buildDoneItem(turnElapsed, lastUsage, changesMap) {
-  const totalTok = lastUsage?.total_tokens || 0;
-  const tokFormatted = totalTok >= 1000 ? `${(totalTok / 1000).toFixed(1)}k` : `${totalTok}`;
-  const tokInfo = totalTok ? ` · ${tokFormatted} tok` : '';
+function buildDoneItem(turnElapsed, turnUsage, changesMap) {
+  const usageText = formatTurnUsage(turnUsage);
+  const tokInfo = usageText ? ` · ${usageText}` : '';
 
   const created = [];
   const modified = [];
@@ -137,6 +137,9 @@ function createTurnEvents({
     },
     onWarning: (msg) => {
       setTranscript(prev => [...prev, { type: 'note', level: 'warn', text: msg }]);
+    },
+    onRequestDone: ({ usage, rateLimits }) => {
+      recordRequest(session.provider, session.model, usage, rateLimits);
     }
   };
 }
@@ -220,7 +223,7 @@ export function useAgentTurn({
     let succeeded = false;
 
     try {
-      const { finalText, newMessages, lastUsage, elapsedMs } = await runAgentTurn({
+      const { finalText, newMessages, lastUsage, turnUsage, elapsedMs } = await runAgentTurn({
         session,
         messages: messagesToSend,
         toolCtx: toolCtxRef.current,
@@ -253,7 +256,7 @@ export function useAgentTurn({
 
       setTranscript(prev => [
         ...prev,
-        buildDoneItem(turnElapsed, lastUsage, changesRef.current)
+        buildDoneItem(turnElapsed, turnUsage, changesRef.current)
       ]);
 
       if (session.apiKey) {

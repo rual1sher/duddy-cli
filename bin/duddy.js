@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import { loadConfig, getActiveApiKey, DEFAULT_SYSTEM_PROMPT } from "../src/config.js";
 import { getProvider } from "../src/providers.js";
 import { startTui } from "../src/ui/index.js";
 import { runAgentTurn } from "../src/agent.js";
 import { handleModelError, errorText } from "../src/errors.js";
 import { createPlainRenderer } from "../src/plainRenderer.js";
-import { formatDuration } from "../src/formatter.js";
+import { formatDuration, formatTurnUsage } from "../src/formatter.js";
+import { buildProjectContext } from "../src/projectContext.js";
+import { undoLastCheckpoint } from "../src/tools/checkpoints.js";
 import chalk from "chalk";
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
@@ -41,13 +44,16 @@ ${chalk.bold("Options:")}
   ${chalk.yellow("-y, --yes")}   Automatically confirm all tool actions without prompt
   ${chalk.yellow("-h, --help")}  Show help
   ${chalk.yellow("-v, --version")} Show version
+  ${chalk.yellow("--undo")}    Откатить последний ход агента в текущей папке
 
 ${chalk.bold("Interactive Commands:")}
   ${chalk.yellow("/model")}   Список моделей ваших провайдеров с поиском
   ${chalk.yellow("/effort")}  Set reasoning level (auto, low, medium, high)
   ${chalk.yellow("/login")}   Login: OpenRouter, Google AI Studio or xAI
   ${chalk.yellow("/clear")}   Clear conversation context
-  ${chalk.yellow("/usage")}   Show session stats
+  ${chalk.yellow("/context")} Show context window and history
+  ${chalk.yellow("/usage")}   Show model limits and token spend
+  ${chalk.yellow("/undo")}    Откатить последний ход агента (изменения файлов)
   ${chalk.yellow("/exit")}    Quit session
 `);
     process.exit(0);
@@ -55,6 +61,31 @@ ${chalk.bold("Interactive Commands:")}
 
   if (rawArgs.includes("--version") || rawArgs.includes("-v")) {
     console.log(`duddy v${pkg.version}`);
+    process.exit(0);
+  }
+
+  if (rawArgs.includes("--undo")) {
+    const result = await undoLastCheckpoint(fs.realpathSync(process.cwd()));
+    if (result === null) {
+      console.log("Нечего отменять.");
+      process.exit(1);
+    }
+    if (result.restored.length > 0) {
+      console.log("Восстановлено:");
+      for (const p of result.restored) {
+        console.log(`  ${p}`);
+      }
+    }
+    if (result.conflicts.length > 0) {
+      console.log("Конфликты (файлы изменились после хода, не тронуты):");
+      for (const p of result.conflicts) {
+        console.log(`  ${p}`);
+      }
+      if (result.backupDir) {
+        console.log(`Резервные копии: ${result.backupDir}`);
+      }
+      process.exit(1);
+    }
     process.exit(0);
   }
 
@@ -69,6 +100,7 @@ ${chalk.bold("Interactive Commands:")}
   }
 
   const session = {
+    id: randomUUID(),
     provider,
     apiKey,
     model:
@@ -77,7 +109,7 @@ ${chalk.bold("Interactive Commands:")}
       getProvider(provider).defaultModel,
     reasoningEffort: config.reasoningEffort || "auto",
     temperature: config.temperature ?? 0.4,
-    systemPrompt: DEFAULT_SYSTEM_PROMPT,
+    systemPrompt: DEFAULT_SYSTEM_PROMPT + (await buildProjectContext(process.cwd())),
     messages: [],
     autoApprove,
   };
@@ -110,6 +142,7 @@ ${chalk.bold("Interactive Commands:")}
     const renderer = createPlainRenderer(session, { interactive });
     const toolCtx = {
       autoApprove: !!session.autoApprove,
+      allowCommands: !!session.autoApprove,
       canPrompt: interactive,
       ...renderer.toolCtxExtras,
     };
@@ -130,7 +163,7 @@ ${chalk.bold("Interactive Commands:")}
     process.on("SIGINT", onSigint);
 
     try {
-      const { lastUsage, elapsedMs } = await runAgentTurn({
+      const { turnUsage, elapsedMs } = await runAgentTurn({
         session,
         messages: messagesToSend,
         toolCtx,
@@ -139,10 +172,8 @@ ${chalk.bold("Interactive Commands:")}
       });
 
       const durationStr = formatDuration(elapsedMs ?? Date.now() - startTime);
-      const tokFormatted = (lastUsage?.total_tokens ?? 0)
-        .toLocaleString("ru-RU")
-        .replace(/\s/g, " ");
-      const tokenInfo = lastUsage?.total_tokens ? ` · ${tokFormatted} tok` : "";
+      const usageText = formatTurnUsage(turnUsage);
+      const tokenInfo = usageText ? ` · ${usageText}` : "";
       console.log(
         chalk.hex("#334155")("╰─ ") +
           chalk.hex("#10b981")("✔ Готово") +

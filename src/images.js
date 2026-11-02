@@ -122,6 +122,23 @@ export async function readClipboardImage() {
 }
 
 /**
+ * Читает текстовое содержимое буфера обмена операционной системы (Wayland или X11).
+ *
+ * @returns {Promise<string>}
+ */
+export async function readClipboardText() {
+  const isWayland = Boolean(process.env.WAYLAND_DISPLAY);
+  try {
+    const res = isWayland
+      ? await execFileAsync('wl-paste', ['--no-newline'], { timeout: 3000 })
+      : await execFileAsync('xclip', ['-selection', 'clipboard', '-o'], { timeout: 3000 });
+    return String(res?.stdout || '');
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Разбивает строку на токены с поддержкой кавычек и экранированных пробелов.
  *
  * @param {string} rawText

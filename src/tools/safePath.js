@@ -10,7 +10,7 @@ import path from 'node:path';
  * @param {string} targetPath - Path to resolve
  * @param {object} [options]
  * @param {boolean} [options.followFinalSymlink=true] - Whether to follow symlinks for the final target
- * @returns {Promise<{ fullPath: string, relPath: string, error: string|null }>}
+ * @returns {Promise<{ fullPath: string, relPath: string, realPath?: string, error: string|null }>}
  */
 export async function resolveSafePath(targetPath, { followFinalSymlink = true } = {}) {
   const root = await fs.realpath(process.cwd());
@@ -68,7 +68,7 @@ export async function resolveSafePath(targetPath, { followFinalSymlink = true } 
     };
   }
 
-  return { fullPath, relPath, error: null };
+  return { fullPath, relPath, realPath: real, error: null };
 }
 
 /**

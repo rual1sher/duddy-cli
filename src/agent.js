@@ -1,10 +1,14 @@
+import fs from 'node:fs';
 import { streamChatCompletion } from './llm/stream.js';
 import { AGENT_TOOLS } from './tools/definitions.js';
 import { executeTool } from './tools/execute.js';
 import { describeToolResult } from './toolDisplay.js';
+import { createCheckpoint } from './tools/checkpoints.js';
+import { compactToolResults } from './llm/compact.js';
 
 export const MAX_HISTORY_TURNS = 10;
 export const MAX_TOOL_TURNS = 10;
+const SECRET_REMOVED = '[Содержимое файла с секретами удалено из истории. Если оно снова нужно, прочитай файл заново: пользователь подтвердит доступ.]';
 
 /**
  * Исполняет один агентный ход (Agent Turn): отправляет сообщения модели,
@@ -22,7 +26,8 @@ export const MAX_TOOL_TURNS = 10;
  * @param {(texts: string[]) => void} [params.events.onQueuedInjected] - Колбэк при внедрении сообщений из очереди в текущий ход
  * @param {(info: { id: string, name: string, args: object|null }) => void} [params.events.onToolStart] - Колбэк начала выполнения инструмента
  * @param {(info: { id: string, name: string, ok: boolean, summary: string, display: object }) => void} [params.events.onToolResult] - Колбэк завершения вызова инструмента
- * @returns {Promise<{ finalText: string, newMessages: Array<object>, lastUsage: object|null, hitTurnLimit: boolean, elapsedMs: number, routedModel: string }>}
+ * @param {(info: { usage: object|null, rateLimits: object|null }) => void} [params.events.onRequestDone] - Колбэк завершения HTTP-запроса к модели с данными о токенах и лимитах
+ * @returns {Promise<{ finalText: string, newMessages: Array<object>, lastUsage: object|null, turnUsage: { input: number, output: number, cached: number }, hitTurnLimit: boolean, elapsedMs: number, routedModel: string }>}
  * @throws {Error & { partialMessages?: Array<object> }} При ошибке запроса к модели у ошибки есть partialMessages — завершённые шаги хода
  */
 export async function runAgentTurn({ session, messages, toolCtx, signal, events = {} }) {
@@ -32,6 +37,14 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
   let hitTurnLimit = false;
   let routedModel = '';
   const activeToolCtx = toolCtx || session?.toolCtx || { autoApprove: !!session?.autoApprove, canPrompt: true };
+
+  activeToolCtx.checkpoint = createCheckpoint(fs.realpathSync(process.cwd()));
+  activeToolCtx.signal = signal;
+  // История между ходами обрезается, поэтому «модель видела файл» действует только в пределах хода
+  activeToolCtx.fullyRead = new Map();
+  activeToolCtx.seenReads = new Map();
+  const readCalls = new Map();
+  const turnUsage = { input: 0, output: 0, cached: 0 };
 
   const startedAt = Date.now();
   let turn = 0;
@@ -45,6 +58,15 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
   while (true) {
     emit('onPhase', 'thinking');
 
+    // Убранный результат модель больше не видит, поэтому файл снова считается непрочитанным
+    for (const id of compactToolResults(messages)) {
+      const read = readCalls.get(id);
+      if (read) {
+        activeToolCtx.fullyRead.delete(read.fullPath);
+        activeToolCtx.seenReads.delete(read.readKey);
+      }
+    }
+
     // Перед вызовом newMessages всегда содержит только завершённые шаги, поэтому пары assistant.tool_calls ↔ tool не разрываются
     let stepText = '';
     let streamResult;
@@ -53,6 +75,7 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
         provider: session.provider,
         apiKey: session.apiKey,
         model: session.model,
+        sessionId: session.id,
         messages,
         tools: AGENT_TOOLS,
         temperature: session.temperature ?? 0.4,
@@ -86,6 +109,9 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
     if (usage) {
       lastUsage = usage;
       session.lastUsage = usage;
+      turnUsage.input += usage.prompt_tokens || 0;
+      turnUsage.output += usage.completion_tokens || 0;
+      turnUsage.cached += usage.prompt_tokens_details?.cached_tokens || 0;
       const total = usage.total_tokens || 0;
       session.totalTokens = (session.totalTokens || 0) + total;
       if (!session.modelUsage) {
@@ -97,6 +123,8 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
       session.modelUsage[session.model].lastTokens = total;
       session.modelUsage[session.model].totalTokens += total;
     }
+
+    emit('onRequestDone', { usage, rateLimits: streamResult.rateLimits });
 
     if (typeof events.onStepEnd === 'function') {
       await events.onStepEnd();
@@ -157,14 +185,18 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
 
         emit('onToolStart', { id: call.id, name: funcName, args: funcArgs });
 
+        const toolMeta = {};
         let toolResultContent = '';
         if (signal?.aborted) {
           toolResultContent = 'Отклонено: пользователь прервал ход';
         } else if (parseError) {
           toolResultContent = `Ошибка: аргументы вызова ${funcName} — невалидный JSON (${parseError.message}). Повтори вызов с корректным JSON. Экранируй кавычки и переводы строк в строковых значениях.`;
         } else {
-          const toolResult = await executeTool(funcName, funcArgs, activeToolCtx);
+          const toolResult = await executeTool(funcName, funcArgs, activeToolCtx, toolMeta);
           toolResultContent = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult);
+          if (toolMeta.readKey) {
+            readCalls.set(call.id, toolMeta);
+          }
         }
 
         const ok = !toolResultContent.startsWith('Ошибка') && !toolResultContent.startsWith('Отклонено');
@@ -179,8 +211,9 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
           name: funcName,
           content: toolResultContent
         };
+        // Модель видит секрет только в текущем ходе, в историю сессии уходит заглушка
         messages.push(toolMsg);
-        newMessages.push(toolMsg);
+        newMessages.push(toolMeta.secret ? { ...toolMsg, content: SECRET_REMOVED } : toolMsg);
       }
 
       if (!signal?.aborted && typeof events.takeQueued === 'function') {
@@ -218,6 +251,7 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
     finalText,
     newMessages,
     lastUsage,
+    turnUsage,
     hitTurnLimit,
     elapsedMs,
     routedModel

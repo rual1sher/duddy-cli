@@ -18,6 +18,8 @@ import { useRef } from 'react';
 export function useToolContext({ session, liveToolsRef, setLiveTools, setOverlay, lastActivityRef }) {
   const toolCtxRef = useRef({
     autoApprove: Boolean(session.autoApprove),
+    allowCommands: Boolean(session.autoApprove),
+    allowedCommands: new Set(),
     canPrompt: true,
     log: (level, text) => {
       const prev = liveToolsRef.current;
@@ -31,19 +33,18 @@ export function useToolContext({ session, liveToolsRef, setLiveTools, setOverlay
       liveToolsRef.current = next;
       setLiveTools(next);
     },
-    approve: ({ name, relPath, preview }) => {
+    approve: ({ name, relPath, preview, sensitive, scope }) => {
       return new Promise((resolve) => {
         setOverlay({
           kind: 'approval',
           name,
           relPath,
           preview,
+          sensitive,
+          scope,
           onResolve: (choice) => {
             lastActivityRef.current = Date.now();
             setOverlay(null);
-            if (choice === 'all') {
-              toolCtxRef.current.autoApprove = true;
-            }
             resolve(choice);
           }
         });

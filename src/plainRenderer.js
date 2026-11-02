@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import { AnimatedTerminalRenderer, formatDuration } from './formatter.js';
+import { recordRequest } from './models/limits.js';
 
 /**
  * Создает текстовый рендерер терминала для хода агента.
@@ -118,7 +119,11 @@ export function createPlainRenderer(session, { interactive }) {
       console.log(chalk.hex('#38bdf8')(`\n⚙️  [Инструмент: ${chalk.bold(name)}]`));
     },
 
-    onToolResult() {}
+    onToolResult() {},
+
+    onRequestDone({ usage, rateLimits }) {
+      recordRequest(session.provider, session.model, usage, rateLimits);
+    }
   };
 
   const log = (level, text) => {
@@ -144,7 +149,7 @@ export function createPlainRenderer(session, { interactive }) {
     console.log(colored);
   };
 
-  const approve = async ({ name, relPath, preview }) => {
+  const approve = async ({ name, relPath, preview, sensitive = false, scope = 'file' }) => {
     if (!interactive || !process.stdin.isTTY || typeof process.stdin.setRawMode !== 'function') {
       return 'no';
     }
@@ -170,7 +175,9 @@ export function createPlainRenderer(session, { interactive }) {
       }
     }
 
-    const question = `Применить ${name} для ${relPath}? [y] да · [a] да для всей сессии · [n] нет: `;
+    const question = sensitive
+      ? `Применить ${name} для ${relPath}? [y] да · [n] нет: `
+      : `Применить ${name} для ${relPath}? [y] да · [a] ${scope === 'command' ? 'да для этой команды' : 'да для всей сессии'} · [n] нет: `;
     process.stdout.write(question);
 
     const wasRaw = process.stdin.isRaw;
@@ -189,13 +196,15 @@ export function createPlainRenderer(session, { interactive }) {
         let choice = null;
         let label = '';
 
-        if (str === 'y' || str === 'Y' || str === '\r' || str === '\n') {
+        const isEnter = str === '\r' || str === '\n';
+
+        if (str === 'y' || str === 'Y' || (isEnter && !sensitive)) {
           choice = 'yes';
           label = 'да';
-        } else if (str === 'a' || str === 'A') {
+        } else if (!sensitive && (str === 'a' || str === 'A')) {
           choice = 'all';
-          label = 'да для всей сессии';
-        } else if (str === 'n' || str === 'N' || str === '\u001b' || str === '\u0003') {
+          label = scope === 'command' ? 'да для этой команды' : 'да для всей сессии';
+        } else if (str === 'n' || str === 'N' || str === '\u001b' || str === '\u0003' || isEnter) {
           choice = 'no';
           label = 'нет';
         } else {

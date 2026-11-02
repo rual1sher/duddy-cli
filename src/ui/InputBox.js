@@ -110,7 +110,6 @@ export function InputBox({
   };
 
   usePaste((pasted) => {
-    if (overlayOpen) return;
     const rawText = typeof pasted === 'string' ? pasted : pasted?.text || '';
     if (!rawText) return;
 
@@ -144,7 +143,7 @@ export function InputBox({
 
     const sanitized = rawText.replace(/\r?\n/g, ' ');
     setValueAtEnd(prev => prev + sanitized);
-  });
+  }, { isActive: !overlayOpen });
 
   const handleKey = (input, key) => {
     if (key.escape) {

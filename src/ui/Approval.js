@@ -3,7 +3,7 @@
  */
 
 import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, usePaste } from 'ink';
 
 const h = React.createElement;
 
@@ -20,11 +20,19 @@ const CHOICES = [
  * @param {string} props.name - Название инструмента (create_file, edit_file и др.)
  * @param {string} props.relPath - Относительный путь к целевому файлу
  * @param {Array<object>} [props.preview=[]] - Список строк предпросмотра
+ * @param {boolean} [props.sensitive=false] - Действие может раскрыть секреты или навредить: нет варианта «на всю сессию», по умолчанию выбрано «Нет»
+ * @param {'file'|'command'} [props.scope='file'] - Что покрывает вариант «на всю сессию»
  * @param {(choice: 'yes'|'all'|'no') => void} props.onResolve - Резолв подтверждения
  * @returns {React.ReactElement}
  */
-export function Approval({ name, relPath, preview = [], onResolve }) {
-  const [selectedIndex, setSelectedIndex] = useState(0);
+export function Approval({ name, relPath, preview = [], sensitive = false, scope = 'file', onResolve }) {
+  const allLabel = scope === 'command' ? 'Да, и не спрашивать эту команду в этой сессии' : 'Да, и не спрашивать в этой сессии';
+  const choices = (sensitive ? CHOICES.filter(c => c.value !== 'all') : CHOICES)
+    .map(c => (c.value === 'all' ? { ...c, label: allLabel } : c));
+  const [selectedIndex, setSelectedIndex] = useState(sensitive ? choices.length - 1 : 0);
+
+  // Без слушателя Ink отдал бы вставку в useInput, и текст «y» из буфера подтвердил бы действие
+  usePaste(() => {});
 
   useInput((input, key) => {
     if (key.escape || input === 'n' || input === 'N') {
@@ -37,24 +45,24 @@ export function Approval({ name, relPath, preview = [], onResolve }) {
       return;
     }
 
-    if (input === 'a' || input === 'A') {
+    if (!sensitive && (input === 'a' || input === 'A')) {
       if (typeof onResolve === 'function') onResolve('all');
       return;
     }
 
     if (key.upArrow) {
-      setSelectedIndex(prev => (prev - 1 + CHOICES.length) % CHOICES.length);
+      setSelectedIndex(prev => (prev - 1 + choices.length) % choices.length);
       return;
     }
 
     if (key.downArrow) {
-      setSelectedIndex(prev => (prev + 1) % CHOICES.length);
+      setSelectedIndex(prev => (prev + 1) % choices.length);
       return;
     }
 
     if (key.return) {
       if (typeof onResolve === 'function') {
-        onResolve(CHOICES[selectedIndex].value);
+        onResolve(choices[selectedIndex].value);
       }
     }
   });
@@ -93,7 +101,7 @@ export function Approval({ name, relPath, preview = [], onResolve }) {
     h(
       Box,
       { flexDirection: 'column', marginTop: preview.length > 0 ? 0 : 1 },
-      CHOICES.map((c, i) => {
+      choices.map((c, i) => {
         const isSelected = i === selectedIndex;
         return h(
           Box,
@@ -110,7 +118,13 @@ export function Approval({ name, relPath, preview = [], onResolve }) {
     h(
       Box,
       { marginTop: 1 },
-      h(Text, { color: '#64748b', dimColor: true }, 'y — да · a — да на всю сессию · n / Esc — нет · ↑↓ Enter')
+      h(
+        Text,
+        { color: '#64748b', dimColor: true },
+        sensitive
+          ? 'y — да · n / Esc — нет · ↑↓ Enter'
+          : `y — да · a — ${scope === 'command' ? 'да для этой команды' : 'да на всю сессию'} · n / Esc — нет · ↑↓ Enter`
+      )
     )
   );
 }

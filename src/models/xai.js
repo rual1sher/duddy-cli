@@ -6,6 +6,65 @@ import { getProvider } from '../providers.js';
 import { isCodeUnfit } from './filters.js';
 
 /**
+ * Сформировать понятное сообщение об ошибке xAI
+ *
+ * @param {number} status - HTTP-статус ответа
+ * @param {string} body - Текст ответа сервера
+ * @param {string} [key] - API-ключ для маскировки
+ * @returns {string} Текст ошибки для пользователя
+ */
+export function describeXaiError(status, body, key) {
+  let reason = '';
+  try {
+    const data = JSON.parse(body);
+    if (typeof data?.error === 'string') {
+      reason = data.error;
+    } else if (data?.error?.message != null) {
+      reason = String(data.error.message);
+    } else if (data?.message != null) {
+      reason = String(data.message);
+    } else if (data?.code != null) {
+      reason = String(data.code);
+    }
+  } catch {
+    reason = typeof body === 'string' ? body : (body != null ? String(body) : '');
+  }
+
+  // Сначала маскируем: обрезка могла бы разорвать ключ, и его начало осталось бы в тексте
+  if (key && typeof key === 'string') {
+    reason = reason.split(key).join('***');
+  }
+
+  reason = reason.replace(/\s+/g, ' ').trim();
+  if (reason.length > 200) {
+    reason = reason.slice(0, 200);
+  }
+
+  const lower = reason.toLowerCase();
+  let text;
+
+  if (status === 401 || (status === 400 && (lower.includes('api key') || lower.includes('api_key')))) {
+    text = 'xAI не принял ключ: он неверный, отозван или скопирован не целиком. Создайте новый на console.x.ai';
+  } else if (lower.includes('credit') || lower.includes('spending limit') || lower.includes('license')) {
+    text = 'Ключ xAI настоящий, но на счёте нет средств. Пополните баланс на console.x.ai и вставьте ключ снова';
+  } else if (status === 403) {
+    text = 'xAI запретил доступ: у ключа нет нужных прав или доступ ограничен. Проверьте права ключа на console.x.ai';
+  } else if (status === 429) {
+    text = 'Слишком много запросов к xAI. Подождите минуту и попробуйте снова';
+  } else if (status >= 500) {
+    text = `xAI временно не работает (HTTP ${status}). Попробуйте позже`;
+  } else {
+    text = `xAI вернул ошибку HTTP ${status}`;
+  }
+
+  if (reason) {
+    text += ` Ответ xAI: ${reason}`;
+  }
+
+  return text;
+}
+
+/**
  * Проверить валидность API-ключа xAI
  *
  * @param {string} key - API-ключ xAI
@@ -32,10 +91,7 @@ export async function validateXaiKey(key) {
   }
 
   if (!res.ok) {
-    if (res.status === 400 || res.status === 401 || res.status === 403) {
-      throw new Error('Ключ xAI не подошёл');
-    }
-    throw new Error(`xAI вернул ошибку HTTP ${res.status}`);
+    throw new Error(describeXaiError(res.status, await res.text().catch(() => ''), key));
   }
 
   return true;
@@ -114,10 +170,7 @@ export async function fetchXaiModels(key) {
   }
 
   if (!langRes.ok) {
-    if (langRes.status === 400 || langRes.status === 401 || langRes.status === 403) {
-      throw new Error('Ключ xAI не подошёл');
-    }
-    throw new Error(`xAI HTTP ${langRes.status}`);
+    throw new Error(describeXaiError(langRes.status, await langRes.text().catch(() => ''), key));
   }
 
   const langJson = await langRes.json();

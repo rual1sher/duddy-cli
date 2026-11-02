@@ -31,8 +31,25 @@ const START_TITLES = {
   create_folder: 'Создаёт папку',
   edit_file: 'Изменяет',
   delete_file: 'Удаляет',
-  delete_folder: 'Удаляет папку'
+  delete_folder: 'Удаляет папку',
+  bash: 'Выполняет',
+  grep: 'Ищет',
+  glob: 'Ищет файлы'
 };
+
+/**
+ * Определяет, что показать рядом с именем инструмента
+ *
+ * @param {string} name - Имя инструмента
+ * @param {object} [args] - Аргументы вызова инструмента
+ * @returns {string}
+ */
+function toolTarget(name, args) {
+  if (name === 'bash') return String(args?.command ?? '').split('\n')[0].slice(0, 100);
+  if (name === 'grep' || name === 'glob') return args?.pattern ?? '';
+  if (name === 'list_dir') return args?.path?.trim?.() || '.';
+  return args?.path ?? '';
+}
 
 /**
  * Описание начала выполнения инструмента (для live-отображения)
@@ -43,7 +60,7 @@ const START_TITLES = {
  */
 export function describeToolStart(name, args) {
   const title = START_TITLES[name] || name || '';
-  const target = name === 'list_dir' ? (args?.path?.trim?.() || '.') : (args?.path ?? '');
+  const target = toolTarget(name, args);
   return { title, target };
 }
 
@@ -75,7 +92,7 @@ export function toLines(text) {
  * @returns {{ title: string, target: string, summary: string, diff: Array<object>, change: string|null }}
  */
 export function describeToolResult(name, args, resultText, ok) {
-  const target = name === 'list_dir' ? (args?.path?.trim?.() || '.') : (args?.path ?? '');
+  const target = toolTarget(name, args);
   const rawText = String(resultText ?? '');
 
   if (!ok) {
@@ -233,6 +250,60 @@ export function describeToolResult(name, args, resultText, ok) {
         diff: [],
         change: 'deleted'
       };
+
+    case 'bash': {
+      const lines = toLines(rawText);
+      const shown = lines.slice(-6).map(text => ({ kind: 'more', text: text.slice(0, 160) }));
+      return {
+        title: 'Выполнена',
+        target,
+        summary: plural(lines.length, 'строка', 'строки', 'строк'),
+        diff: shown,
+        change: null
+      };
+    }
+
+    case 'grep': {
+      if (rawText.startsWith('Совпадений нет')) {
+        return {
+          title: 'Поиск',
+          target,
+          summary: 'нет совпадений',
+          diff: [],
+          change: null
+        };
+      }
+      const lines = toLines(rawText).filter(l => l && !l.startsWith('...['));
+      return {
+        title: 'Поиск',
+        target,
+        summary: plural(lines.length, 'совпадение', 'совпадения', 'совпадений'),
+        diff: [],
+        change: null
+      };
+    }
+
+    case 'glob': {
+      if (rawText.startsWith('Файлов нет')) {
+        return {
+          title: 'Файлы',
+          target,
+          summary: 'нет файлов',
+          diff: [],
+          change: null
+        };
+      }
+      const firstLine = rawText.split('\n')[0] || '';
+      const match = firstLine.match(/Найдено файлов:\s*(\d+)/);
+      const count = match ? parseInt(match[1], 10) : 0;
+      return {
+        title: 'Файлы',
+        target,
+        summary: count > 0 ? plural(count, 'файл', 'файла', 'файлов') : 'нет файлов',
+        diff: [],
+        change: null
+      };
+    }
 
     default: {
       const firstLine = rawText.split('\n')[0] || '';

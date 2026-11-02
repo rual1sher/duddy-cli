@@ -3,11 +3,13 @@
  */
 
 import { useCallback } from 'react';
+import fs from 'node:fs';
 import {
   selectModel,
   setEffort,
   saveOpenRouterKey,
   usageLines,
+  contextLines,
   helpLines
 } from '../../session-actions.js';
 import { listModels } from '../../models/catalog.js';
@@ -15,8 +17,10 @@ import { UNAVAILABLE_REASONS } from '../../models/status.js';
 import { loadConfig } from '../../config.js';
 import { PROVIDERS, getProvider, detectProviderForModel, getProviderKey } from '../../providers.js';
 import { CLEAR_SCREEN } from './useResizeRedraw.js';
+import { undoLastCheckpoint } from '../../tools/checkpoints.js';
 
 const COMMAND_ALIASES = {
+  ctx: 'context',
   m: 'model',
   models: 'model',
   think: 'effort',
@@ -73,7 +77,9 @@ function clearConversation({ session, queueRef, setQueued, toolCtxRef, setTransc
   setQueued([]);
   session.messages = [];
   session.lastRoutedModel = '';
+  session.lastUsage = null;
   toolCtxRef.current.autoApprove = Boolean(session.autoApprove);
+  toolCtxRef.current.allowedCommands = new Set();
   process.stdout.write(CLEAR_SCREEN);
   setTranscript([
     { type: 'banner' },
@@ -87,6 +93,14 @@ function clearConversation({ session, queueRef, setQueued, toolCtxRef, setTransc
  */
 async function showUsage({ session, setTranscript }) {
   const lines = await usageLines(session);
+  setTranscript(prev => [...prev, { type: 'lines', lines }]);
+}
+
+/**
+ * Выводит информацию об окне контекста и истории сообщений
+ */
+async function showContext({ session, setTranscript }) {
+  const lines = await contextLines(session);
   setTranscript(prev => [...prev, { type: 'lines', lines }]);
 }
 
@@ -224,6 +238,30 @@ async function pickModel(ctx) {
 }
 
 /**
+ * Отменяет изменения файлов последнего хода агента через /undo
+ */
+async function undoLastTurn({ session, addNote }) {
+  const result = await undoLastCheckpoint(fs.realpathSync(process.cwd()));
+  if (!result) {
+    addNote('info', 'Нечего отменять');
+    return;
+  }
+  const { restored, conflicts, backupDir } = result;
+  if (restored.length > 0) {
+    const list = restored.join(', ');
+    addNote('success', `Восстановлено: ${list}`);
+    session.messages = [
+      ...(session.messages || []),
+      { role: 'user', content: `Я отменил изменения файлов: ${list}` },
+      { role: 'assistant', content: 'Понял, изменения отменены.' }
+    ];
+  }
+  if (conflicts.length > 0) {
+    addNote('warn', `Изменены после хода, не тронуты: ${conflicts.join(', ')}. Копии лежат в ${backupDir}`);
+  }
+}
+
+/**
  * Хук обработки слэш-команд
  *
  * @param {object} params
@@ -279,8 +317,16 @@ export function useCommands({
         clearConversation(ctx);
         return;
 
+      case 'context':
+        await showContext(ctx);
+        return;
+
       case 'usage':
         await showUsage(ctx);
+        return;
+
+      case 'undo':
+        await undoLastTurn(ctx);
         return;
 
       case 'effort':

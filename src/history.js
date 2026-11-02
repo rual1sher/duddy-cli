@@ -7,8 +7,35 @@ import { MAX_HISTORY_TURNS } from './agent.js';
 export const MAX_IMAGE_TURNS = 3;
 export { MAX_HISTORY_TURNS };
 
+const MAX_TOOL_ARGUMENT_CHARS = 2000;
+
 /**
- * Обрезает длинные результаты вызовов инструментов (> 4000 символов)
+ * Заменяет длинные текстовые аргументы вызова заглушкой: содержимое уже в файле,
+ * а большой записанный файл иначе уходил бы с каждым запросом.
+ * Вызовы с extra_content не трогаем: подпись Gemini относится к исходным аргументам.
+ *
+ * @param {object} call - Вызов инструмента
+ */
+function trimCallArguments(call) {
+  const raw = call.function?.arguments;
+  if (call.extra_content || typeof raw !== 'string' || raw.length <= MAX_TOOL_ARGUMENT_CHARS) return;
+
+  let args;
+  try {
+    args = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  for (const [key, value] of Object.entries(args)) {
+    if (typeof value === 'string' && value.length > MAX_TOOL_ARGUMENT_CHARS) {
+      args[key] = `[${value.length} символов убрано из истории]`;
+    }
+  }
+  call.function.arguments = JSON.stringify(args);
+}
+
+/**
+ * Обрезает длинные результаты вызовов инструментов (> 4000 символов) и аргументы записи файлов
  *
  * @param {Array<object>} messages - Массив сообщений
  */
@@ -16,6 +43,9 @@ function trimToolResults(messages) {
   for (const msg of messages) {
     if (msg.role === 'tool' && typeof msg.content === 'string' && msg.content.length > 4000) {
       msg.content = msg.content.slice(0, 4000) + '\n...[результат обрезан в истории]';
+    }
+    for (const call of msg.tool_calls || []) {
+      trimCallArguments(call);
     }
   }
 }

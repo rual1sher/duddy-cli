@@ -4,6 +4,7 @@
 
 import { noteModelError, UNAVAILABLE_REASONS } from './models/status.js';
 import { getProvider } from './providers.js';
+import { recordQuotaHit } from './models/limits.js';
 
 /**
  * Человекочитаемый текст ошибки: провайдеры кладут причину в JSON внутри message
@@ -34,6 +35,9 @@ export function errorText(err) {
  */
 export function handleModelError(err, session) {
   if (session?.provider && session?.model) {
+    if (err?.status === 429) {
+      recordQuotaHit(session.provider, session.model, err);
+    }
     const reason = noteModelError(session.provider, session.model, err);
     if (reason) {
       return `Модель ${UNAVAILABLE_REASONS[reason]} — она скрыта из списка, выберите другую через /model`;

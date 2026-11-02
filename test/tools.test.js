@@ -94,7 +94,7 @@ test('симлинк внутри папки, ведущий наружу: read_
   assert.strictEqual(fsSync.existsSync(path.join(outsideDir, 'new_file.txt')), false);
 });
 
-test('read_file обрезает файл длиннее 40000 символов', async () => {
+test('read_file обрезает файл длиннее 40000 символов и подсказывает offset', async () => {
   const toolCtx = { autoApprove: true, canPrompt: false };
   const longContent = 'A'.repeat(40050);
   await fs.writeFile('huge.txt', longContent, 'utf8');
@@ -102,8 +102,221 @@ test('read_file обрезает файл длиннее 40000 символов'
   const res = await executeTool('read_file', { path: 'huge.txt' }, toolCtx);
   assert.strictEqual(
     res,
-    'A'.repeat(40000) + '\n\n...[Обрезано: файл слишком большой (40050 байт)]...'
+    'A'.repeat(40000) + '\n\n...[Обрезано: показаны символы 0–40000 из 40050. Чтобы читать дальше, вызови read_file с offset=40000]...'
   );
+
+  const tail = await executeTool('read_file', { path: 'huge.txt', offset: 40000 }, toolCtx);
+  assert.strictEqual(tail, 'A'.repeat(50));
+});
+
+test('read_file по offset восстанавливает большой файл байт в байт', async () => {
+  const toolCtx = { autoApprove: false, canPrompt: false };
+  const lines = [];
+  for (let i = 0; i < 12000; i++) lines.push(`строка ${i} 😀`);
+  lines.push('😀'.repeat(30000), 'ХВОСТ');
+  const original = lines.join('\n');
+  await fs.writeFile('rows.txt', original, 'utf8');
+
+  let assembled = '';
+  let offset = 0;
+  for (let step = 0; step < 100; step++) {
+    const res = await executeTool('read_file', { path: 'rows.txt', offset }, toolCtx);
+    const match = res.match(/\n\n\.\.\.\[Обрезано: показаны символы \d+–(\d+) из \d+\..*$/s);
+    assembled += match ? res.slice(0, match.index) : res;
+    if (!match) break;
+    offset = Number(match[1]);
+  }
+  assert.strictEqual(assembled, original);
+});
+
+test('read_file принимает offset строкой и отклоняет некорректный', async () => {
+  const toolCtx = { autoApprove: true, canPrompt: false };
+  await fs.writeFile('short.txt', 'abcdef', 'utf8');
+
+  assert.strictEqual(await executeTool('read_file', { path: 'short.txt', offset: '2' }, toolCtx), 'cdef');
+  assert.match(await executeTool('read_file', { path: 'short.txt', offset: -1 }, toolCtx), /^Ошибка: offset должен быть/);
+  assert.match(await executeTool('read_file', { path: 'short.txt', offset: 6 }, toolCtx), /^Ошибка: offset 6 за концом файла/);
+});
+
+test('read_file не читает бинарный файл и предупреждает о кодировке не UTF-8', async () => {
+  const toolCtx = { autoApprove: true, canPrompt: false };
+  await fs.writeFile('image.bin', Buffer.from([0x89, 0x50, 0x00, 0x47]));
+  await fs.writeFile('cp1251.txt', Buffer.from([0x50, 0xcf, 0xf0, 0xe8]));
+
+  assert.match(await executeTool('read_file', { path: 'image.bin' }, toolCtx), /^Ошибка: image\.bin — бинарный файл/);
+  assert.match(await executeTool('read_file', { path: 'cp1251.txt' }, toolCtx), /файл не в UTF-8/);
+});
+
+test('create_file не перезаписывает файл, который модель не могла прочитать целиком', async () => {
+  const toolCtx = { autoApprove: true, canPrompt: false };
+  const big = 'Я'.repeat(40001);
+  await fs.writeFile('big.txt', big, 'utf8');
+  const binary = Buffer.from([0xff, 0x00, 0xfe]);
+  await fs.writeFile('data.bin', binary);
+
+  assert.match(await executeTool('create_file', { path: 'big.txt', content: 'x' }, toolCtx), /^Ошибка: big\.txt длиннее 40000 символов/);
+  assert.strictEqual(await fs.readFile('big.txt', 'utf8'), big);
+
+  assert.match(await executeTool('create_file', { path: 'data.bin', content: 'x' }, toolCtx), /^Ошибка: data\.bin не текст в UTF-8/);
+  assert.deepStrictEqual(await fs.readFile('data.bin'), binary);
+});
+
+test('create_file показывает в подтверждении, что именно будет потеряно', async () => {
+  await fs.writeFile('app.js', 'one\ntwo\nthree\n', 'utf8');
+  let request;
+  const toolCtx = { canPrompt: true, approve: async (r) => { request = r; return 'no'; } };
+
+  await executeTool('read_file', { path: 'app.js' }, toolCtx);
+  await executeTool('create_file', { path: 'app.js', content: 'one\nTWO\n' }, toolCtx);
+  assert.strictEqual(request.sensitive, false);
+  assert.deepStrictEqual(request.preview, [
+    { kind: 'warn', text: 'Файл: app.js (ПЕРЕЗАПИСЬ существующего файла: было 4 строк, станет 3)' },
+    { kind: 'del', text: 'two' },
+    { kind: 'del', text: 'three' },
+    { kind: 'add', text: 'TWO' }
+  ]);
+  assert.strictEqual(await fs.readFile('app.js', 'utf8'), 'one\ntwo\nthree\n');
+
+  await executeTool('create_file', { path: 'new.txt', content: 'hello\nworld' }, toolCtx);
+  assert.deepStrictEqual(request.preview.slice(1), [
+    { kind: 'add', text: 'hello' },
+    { kind: 'add', text: 'world' }
+  ]);
+});
+
+test('edit_file не портит файл в другой кодировке', async () => {
+  const toolCtx = { autoApprove: true, canPrompt: false };
+  const cp1251 = Buffer.from([0x61, 0x62, 0x63, 0xcf, 0xf0, 0xe8]);
+  await fs.writeFile('win.txt', cp1251);
+
+  const res = await executeTool('edit_file', { path: 'win.txt', old_content: 'abc', new_content: 'xyz' }, toolCtx);
+  assert.match(res, /^Ошибка: win\.txt не в UTF-8/);
+  assert.deepStrictEqual(await fs.readFile('win.txt'), cp1251);
+});
+
+test('create_file и edit_file не затирают файл, изменённый во время подтверждения', async () => {
+  await fs.writeFile('race.txt', 'alpha\n', 'utf8');
+  const toolCtx = {
+    canPrompt: true,
+    approve: async () => {
+      await fs.writeFile('race.txt', 'правка пользователя\n', 'utf8');
+      return 'yes';
+    }
+  };
+
+  const edited = await executeTool('edit_file', { path: 'race.txt', old_content: 'alpha', new_content: 'beta' }, toolCtx);
+  assert.match(edited, /^Ошибка: race\.txt изменился/);
+  assert.strictEqual(await fs.readFile('race.txt', 'utf8'), 'правка пользователя\n');
+
+  await fs.writeFile('race.txt', 'alpha\n', 'utf8');
+  await executeTool('read_file', { path: 'race.txt' }, toolCtx);
+  const created = await executeTool('create_file', { path: 'race.txt', content: 'beta' }, toolCtx);
+  assert.match(created, /^Ошибка: race\.txt изменился/);
+  assert.strictEqual(await fs.readFile('race.txt', 'utf8'), 'правка пользователя\n');
+
+  const appearing = {
+    canPrompt: true,
+    approve: async () => {
+      await fs.writeFile('appeared.txt', 'чужой файл', 'utf8');
+      return 'yes';
+    }
+  };
+  const res = await executeTool('create_file', { path: 'appeared.txt', content: 'beta' }, appearing);
+  assert.match(res, /^Ошибка: appeared\.txt изменился/);
+  assert.strictEqual(await fs.readFile('appeared.txt', 'utf8'), 'чужой файл');
+});
+
+test('секреты: без интерактива не читаются даже с autoApprove', async () => {
+  const toolCtx = { autoApprove: true, canPrompt: false };
+  const secrets = ['.env', '.env.production', 'prod.env', 'server.pem', 'deploy.KEY', 'id_ed25519', '.npmrc', 'credentials.json'];
+  await fs.mkdir('.ssh');
+  await fs.mkdir('nested');
+  secrets.push('.ssh/config', 'nested/../.env');
+
+  for (const name of secrets) {
+    await fs.writeFile(name, 'TOP_SECRET', 'utf8');
+    const res = await executeTool('read_file', { path: name }, toolCtx);
+    assert.match(res, /^Отклонено: /, name);
+    assert.ok(!res.includes('TOP_SECRET'), name);
+  }
+});
+
+test('секреты: шаблоны и обычные файлы читаются без вопросов', async () => {
+  const toolCtx = { autoApprove: false, canPrompt: false };
+  const safe = ['.env.example', '.env.local.sample', 'env.js', 'id_ed25519.pub', 'keyboard.js', 'key.txt', '.envelope'];
+  for (const name of safe) {
+    await fs.writeFile(name, 'public', 'utf8');
+    assert.strictEqual(await executeTool('read_file', { path: name }, toolCtx), 'public', name);
+  }
+  await fs.mkdir('.env');
+  await fs.writeFile('.env/site.py', 'venv', 'utf8');
+  assert.strictEqual(await executeTool('read_file', { path: '.env/site.py' }, toolCtx), 'venv');
+});
+
+test('секреты: симлинк на секрет не обходит проверку', async () => {
+  const toolCtx = { autoApprove: true, canPrompt: false };
+  await fs.writeFile('.env', 'TOP_SECRET', 'utf8');
+  await fs.symlink('.env', 'notes.txt');
+  await fs.mkdir('.aws');
+  await fs.writeFile('.aws/data.txt', 'TOP_SECRET', 'utf8');
+  await fs.symlink('.aws', 'cloud');
+
+  assert.match(await executeTool('read_file', { path: 'notes.txt' }, toolCtx), /^Отклонено: /);
+  assert.match(await executeTool('read_file', { path: 'cloud/data.txt' }, toolCtx), /^Отклонено: /);
+});
+
+test('секреты: нужно отдельное «да» на каждое обращение, «на всю сессию» не срабатывает', async () => {
+  await fs.writeFile('.env', 'TOP_SECRET', 'utf8');
+  const answers = ['yes', 'all', 'no'];
+  const requests = [];
+  const toolCtx = {
+    autoApprove: true,
+    canPrompt: true,
+    approve: async (r) => {
+      requests.push(r);
+      return answers.shift();
+    }
+  };
+
+  assert.strictEqual(await executeTool('read_file', { path: '.env' }, toolCtx), 'TOP_SECRET');
+  assert.match(await executeTool('read_file', { path: '.env' }, toolCtx), /^Отклонено пользователем/);
+  assert.match(await executeTool('read_file', { path: '.env' }, toolCtx), /^Отклонено пользователем/);
+  assert.strictEqual(requests.length, 3);
+  assert.ok(requests.every(r => r.sensitive));
+
+  const plainCtx = { autoApprove: false, canPrompt: true, approve: async () => 'all' };
+  await executeTool('read_file', { path: '.env' }, plainCtx);
+  assert.strictEqual(plainCtx.autoApprove, false);
+});
+
+test('секреты: запись и удаление при --yes тоже требуют подтверждения', async () => {
+  const toolCtx = { autoApprove: true, canPrompt: false };
+  await fs.writeFile('.env', 'A=1\n', 'utf8');
+
+  assert.match(await executeTool('create_file', { path: '.env.local', content: 'x' }, toolCtx), /^Отклонено: /);
+  assert.strictEqual(fsSync.existsSync('.env.local'), false);
+  assert.match(await executeTool('edit_file', { path: '.env', old_content: 'A=1', new_content: 'A=2' }, toolCtx), /^Отклонено: /);
+  assert.match(await executeTool('delete_file', { path: '.env' }, toolCtx), /^Отклонено: /);
+  assert.strictEqual(await fs.readFile('.env', 'utf8'), 'A=1\n');
+
+  await fs.mkdir('.ssh');
+  assert.match(await executeTool('create_file', { path: '.ssh/authorized_keys', content: 'x' }, toolCtx), /^Отклонено: /);
+  assert.match(await executeTool('delete_folder', { path: '.ssh' }, toolCtx), /^Отклонено: /);
+  assert.ok(fsSync.existsSync('.ssh'));
+});
+
+test('настройки duddy с ключами недоступны даже с подтверждением', async () => {
+  const dir = path.join('.config', 'duddy');
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, 'config.json'), '{"apiKey":"sk-or-secret"}', 'utf8');
+  await fs.symlink(dir, 'settings');
+  const toolCtx = { autoApprove: true, canPrompt: true, approve: async () => 'yes' };
+
+  for (const target of ['.config/duddy/config.json', 'settings/config.json', 'settings']) {
+    const res = await executeTool(target === 'settings' ? 'list_dir' : 'read_file', { path: target }, toolCtx);
+    assert.match(res, /^Ошибка: Доступ запрещён/, target);
+    assert.ok(!res.includes('sk-or-secret'), target);
+  }
 });
 
 test('edit_file: точная замена', async () => {
@@ -209,4 +422,119 @@ test('неизвестный инструмент — Ошибка: Неизве
 
   const res2 = await executeTool('constructor', {}, toolCtx);
   assert.strictEqual(res2, 'Ошибка: Неизвестный инструмент constructor');
+});
+
+test('create_file не перезаписывает файл, который модель не прочитала целиком в этом ходе', async () => {
+  const toolCtx = { autoApprove: true, canPrompt: false };
+  await fs.writeFile('notes.txt', 'важное\nсодержимое\n', 'utf8');
+
+  const blind = await executeTool('create_file', { path: 'notes.txt', content: 'x' }, toolCtx);
+  assert.match(blind, /^Ошибка: перед перезаписью прочитай notes\.txt/);
+  assert.strictEqual(await fs.readFile('notes.txt', 'utf8'), 'важное\nсодержимое\n');
+
+  await executeTool('read_file', { path: 'notes.txt' }, toolCtx);
+  await fs.writeFile('notes.txt', 'правка пользователя\n', 'utf8');
+  const stale = await executeTool('create_file', { path: 'notes.txt', content: 'x' }, toolCtx);
+  assert.match(stale, /^Ошибка: перед перезаписью прочитай/);
+  assert.strictEqual(await fs.readFile('notes.txt', 'utf8'), 'правка пользователя\n');
+
+  await executeTool('read_file', { path: 'notes.txt' }, toolCtx);
+  const res = await executeTool('create_file', { path: 'notes.txt', content: 'новое' }, toolCtx);
+  assert.match(res, /^✓ Файл notes\.txt перезаписан/);
+});
+
+test('create_file: своя запись и своя правка считаются прочитанными, чужой хвост — нет', async () => {
+  const toolCtx = { autoApprove: true, canPrompt: false };
+  await executeTool('create_file', { path: 'own.txt', content: 'one\n' }, toolCtx);
+  await executeTool('edit_file', { path: 'own.txt', old_content: 'one', new_content: 'two' }, toolCtx);
+  assert.match(await executeTool('create_file', { path: 'own.txt', content: 'three' }, toolCtx), /^✓/);
+
+  await fs.writeFile('empty.txt', '', 'utf8');
+  assert.match(await executeTool('create_file', { path: 'empty.txt', content: 'x' }, toolCtx), /^✓/);
+
+  await fs.writeFile('part.txt', 'abcdef', 'utf8');
+  await executeTool('read_file', { path: 'part.txt', offset: 3 }, toolCtx);
+  assert.match(await executeTool('create_file', { path: 'part.txt', content: 'x' }, toolCtx), /^Ошибка: перед перезаписью/);
+});
+
+test('секреты в содержимом: файл с обычным именем требует подтверждения, значение не показывается', async () => {
+  const key = 'ghp_' + 'a1B2'.repeat(10);
+  await fs.writeFile('backup.txt', `первая строка\nвторая\nTOKEN=${key}\n`, 'utf8');
+  let request;
+  const toolCtx = { autoApprove: true, canPrompt: true, approve: async (r) => { request = r; return 'no'; } };
+
+  const res = await executeTool('read_file', { path: 'backup.txt' }, toolCtx);
+  assert.match(res, /^Отклонено пользователем/);
+  assert.strictEqual(request.sensitive, true);
+  const shown = JSON.stringify(request.preview);
+  assert.ok(shown.includes('токен GitHub, строка 3'), shown);
+  assert.ok(!shown.includes(key));
+
+  const pipe = await executeTool('read_file', { path: 'backup.txt' }, { autoApprove: true, canPrompt: false });
+  assert.match(pipe, /^Отклонено: /);
+  assert.ok(!pipe.includes(key));
+
+  const meta = {};
+  const allowed = await executeTool('read_file', { path: 'backup.txt' }, { canPrompt: true, approve: async () => 'yes' }, meta);
+  assert.ok(allowed.includes(key));
+  assert.strictEqual(meta.secret, true);
+});
+
+test('секреты в содержимом: номер строки считается от начала файла при чтении по offset', async () => {
+  const filler = 'x\n'.repeat(30000);
+  await fs.writeFile('long.log', `${filler}-----BEGIN RSA PRIVATE KEY-----\n`, 'utf8');
+  let request;
+  const toolCtx = { canPrompt: true, approve: async (r) => { request = r; return 'no'; } };
+
+  await executeTool('read_file', { path: 'long.log', offset: 40000 }, toolCtx);
+  assert.ok(request.preview.some(p => p.text.includes('приватный ключ, строка 30001')), JSON.stringify(request.preview));
+});
+
+test('обычный код и заглушки не считаются секретами', async () => {
+  const toolCtx = { autoApprove: false, canPrompt: false };
+  const samples = [
+    'API_KEY=your_api_key_here',
+    'API_KEY=process.env.API_KEY',
+    'SECRET_KEY=${SECRET_KEY}',
+    'TOKEN_TTL=3600',
+    'DATABASE_URL=postgres://user:${DB_PASS}@localhost/app',
+    'DATABASE_URL=postgres://localhost:5432/app',
+    'const password = getPassword();',
+    'sk-short'
+  ];
+  for (const [i, text] of samples.entries()) {
+    const name = `safe${i}.txt`;
+    await fs.writeFile(name, text, 'utf8');
+    assert.strictEqual(await executeTool('read_file', { path: name }, toolCtx), text, text);
+  }
+});
+
+test('секреты в содержимом: разные виды находятся', async () => {
+  const toolCtx = { autoApprove: true, canPrompt: false };
+  const samples = [
+    'key: AKIAIOSFODNN7EXAMPLE',
+    `sk-or-v1-${'f'.repeat(40)}`,
+    `AIza${'B'.repeat(35)}`,
+    'export DB_PASSWORD="s3cr3t-Value"',
+    'mysql://root:hunter2pass@db.internal/prod',
+    '-----BEGIN OPENSSH PRIVATE KEY-----'
+  ];
+  for (const [i, text] of samples.entries()) {
+    const name = `leak${i}.txt`;
+    await fs.writeFile(name, text, 'utf8');
+    assert.match(await executeTool('read_file', { path: name }, toolCtx), /^Отклонено: /, text);
+  }
+});
+
+test('каталог чекпоинтов с копиями секретов недоступен инструментам, в том числе при своём XDG_STATE_HOME', async () => {
+  const dir = path.join('state', 'duddy', 'checkpoints', '1-1', 'files');
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, '0'), 'копия', 'utf8');
+  const toolCtx = { autoApprove: true, canPrompt: true, approve: async () => 'yes' };
+
+  const read = await executeTool('read_file', { path: path.join(dir, '0') }, toolCtx);
+  assert.match(read, /^Ошибка: Доступ запрещён/);
+  const removed = await executeTool('delete_folder', { path: 'state/duddy/checkpoints' }, toolCtx);
+  assert.match(removed, /^Ошибка: Доступ запрещён/);
+  assert.ok(fsSync.existsSync(dir));
 });

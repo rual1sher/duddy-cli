@@ -3,6 +3,7 @@
 import { createClient } from './client.js';
 import { createThinkFilter } from './thinkFilter.js';
 import { createToolCallState, accumulateToolCallDelta } from './toolCalls.js';
+import { parseRateHeaders } from '../models/limits.js';
 
 // Модель может молчать, пока думает или собирает большой вызов инструмента, поэтому лимит большой, а прервать можно вручную
 export const FIRST_CHUNK_TIMEOUT_MS = 600000;
@@ -22,7 +23,8 @@ function buildRequestPayload({
   maxTokens,
   tools,
   reasoningEffort,
-  provider
+  provider,
+  sessionId
 }) {
   const requestPayload = {
     model: model,
@@ -36,6 +38,16 @@ function buildRequestPayload({
   }
   if (tools && tools.length > 0) {
     requestPayload.tools = tools;
+  }
+  if (provider === 'openrouter') {
+    // Остальные провайдеры кэшируют сами, Claude только по явной просьбе
+    if (/^~?anthropic\//.test(model)) {
+      requestPayload.cache_control = { type: 'ephemeral' };
+    }
+    // Держит запросы одной сессии на одном провайдере, иначе кэш не срабатывает
+    if (sessionId) {
+      requestPayload.session_id = sessionId;
+    }
   }
   if (reasoningEffort && reasoningEffort !== 'auto') {
     if (provider === 'openrouter') {
@@ -127,12 +139,16 @@ function createTimeoutGuard({ signal, firstChunkTimeoutMs, stallTimeoutMs }) {
  * @param {object} guard - Сторож таймаутов
  * @param {string} reasoningEffort - Уровень рассуждений
  * @param {Function} [onWarning] - Колбэк для предупреждений
- * @returns {Promise<object>} Поток ответов модели
+ * @returns {Promise<{ stream: AsyncIterable<object>, rateLimits: object|null }>} Поток ответов модели и лимиты
  */
 async function openStream(client, payload, guard, reasoningEffort, onWarning) {
   while (true) {
     try {
-      return await client.chat.completions.create(payload, { signal: guard.signal });
+      const { data, response } = await client.chat.completions.create(payload, { signal: guard.signal }).withResponse();
+      return {
+        stream: data,
+        rateLimits: parseRateHeaders(response?.headers)
+      };
     } catch (err) {
       if (guard.timedOut) {
         throw err;
@@ -276,6 +292,7 @@ function createDeltaHandler({
  * @param {string} [params.provider='openrouter']
  * @param {string} params.apiKey
  * @param {string} params.model
+ * @param {string} [params.sessionId] - Идентификатор сессии для маршрутизации OpenRouter
  * @param {Array<object>} params.messages
  * @param {Array<object>} [params.tools]
  * @param {number} [params.maxTokens]
@@ -288,12 +305,13 @@ function createDeltaHandler({
  * @param {(text: string) => void} [params.onChunk]
  * @param {(warning: string) => void} [params.onWarning]
  * @param {(modelId: string) => void} [params.onModel]
- * @returns {Promise<{ content: string, toolCalls: Array<object>|null, usage: object|null, routedModel: string }>}
+ * @returns {Promise<{ content: string, toolCalls: Array<object>|null, usage: object|null, routedModel: string, rateLimits: object|null }>}
  */
 export async function streamChatCompletion({
   provider = 'openrouter',
   apiKey,
   model,
+  sessionId,
   messages,
   tools,
   maxTokens,
@@ -319,7 +337,8 @@ export async function streamChatCompletion({
     maxTokens,
     tools,
     reasoningEffort,
-    provider
+    provider,
+    sessionId
   });
 
   const guard = createTimeoutGuard({ signal, firstChunkTimeoutMs, stallTimeoutMs });
@@ -348,8 +367,10 @@ export async function streamChatCompletion({
     hasResponse: () => Boolean(fullResponse)
   });
 
+  let streamResult = null;
   try {
-    const stream = await openStream(client, requestPayload, guard, reasoningEffort, onWarning);
+    streamResult = await openStream(client, requestPayload, guard, reasoningEffort, onWarning);
+    const stream = streamResult.stream;
 
     for await (const chunk of stream) {
       guard.onChunk();
@@ -387,6 +408,7 @@ export async function streamChatCompletion({
     content: fullResponse,
     toolCalls: toolCalls.length > 0 ? toolCalls : null,
     usage: deltaHandler.usage,
-    routedModel: deltaHandler.routedModel
+    routedModel: deltaHandler.routedModel,
+    rateLimits: streamResult?.rateLimits ?? null
   };
 }
