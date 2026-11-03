@@ -8,6 +8,7 @@ import { Picker } from './Picker.js';
 import { SecretInput } from './SecretInput.js';
 import { Approval } from './Approval.js';
 import { BrowserLogin } from './BrowserLogin.js';
+import { theme } from '../theme.js';
 
 const h = React.createElement;
 
@@ -19,6 +20,7 @@ const h = React.createElement;
  * @returns {React.ReactElement|null}
  */
 export function Overlay({ overlay }) {
+  const t = theme();
   if (!overlay) return null;
 
   if (overlay.kind === 'picker') {
@@ -38,13 +40,13 @@ export function Overlay({ overlay }) {
       Box,
       {
         borderStyle: 'round',
-        borderColor: '#334155',
+        borderColor: t.border,
         paddingX: 1,
         flexDirection: 'row',
         width: '100%'
       },
-      h(Text, { color: '#38bdf8' }, '⠋ '),
-      h(Text, { color: '#f8fafc' }, overlay.text)
+      h(Text, { color: t.accent }, '⠋ '),
+      h(Text, { color: t.text }, overlay.text)
     );
   }
 

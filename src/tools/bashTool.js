@@ -193,6 +193,13 @@ async function approveCommand(command, policy, ctx) {
     return { approved: true };
   }
 
+  if (ctx?.mode === 'plan') {
+    return {
+      approved: false,
+      message: 'Отклонено: режим планирования, разрешены только безопасные команды для чтения.'
+    };
+  }
+
   const { title, preview } = describeCommand(command, policy.reason);
   if (policy.level === 'dangerous') {
     return requestApproval('bash', title, ctx, preview, {

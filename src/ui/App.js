@@ -13,11 +13,12 @@ import { useLiveOutput } from './hooks/useLiveOutput.js';
 import { useToolContext } from './hooks/useToolContext.js';
 import { useLoginFlows } from './hooks/useLoginFlows.js';
 import { useResizeRedraw } from './hooks/useResizeRedraw.js';
-import { useCommands } from './hooks/useCommands.js';
+import { useCommands, openThemePicker } from './hooks/useCommands.js';
 import { useAgentTurn } from './hooks/useAgentTurn.js';
 import { listModels, findModel } from '../models/catalog.js';
 import { loadConfig } from '../config.js';
 import { fetchKeyInfo, getModelContextLength } from '../llm/modelInfo.js';
+import { nextMode } from '../modes.js';
 
 const h = React.createElement;
 
@@ -55,7 +56,7 @@ export function App({ session }) {
     queueLiveText
   } = useLiveOutput({ setTranscript, modelLabelRef });
 
-  const { toolCtxRef } = useToolContext({
+  const { toolCtxRef, mode, setMode } = useToolContext({
     session,
     liveToolsRef,
     setLiveTools,
@@ -72,7 +73,16 @@ export function App({ session }) {
 
   // Фоновая загрузка метаданных при старте
   useEffect(() => {
-    if (!session.apiKey) {
+    if (!loadConfig().theme) {
+      openThemePicker(
+        { setOverlay, setStaticKey, addNote },
+        {
+          onDone: () => {
+            if (!session.apiKey) openLoginPicker();
+          }
+        }
+      );
+    } else if (!session.apiKey) {
       openLoginPicker();
     }
     listModels(loadConfig()).catch(() => {});
@@ -89,7 +99,7 @@ export function App({ session }) {
         })
         .catch(() => {});
     }
-  }, [session, openLoginPicker]);
+  }, [session, openLoginPicker, addNote]);
 
   useResizeRedraw(setStaticKey);
 
@@ -144,8 +154,13 @@ export function App({ session }) {
     return true;
   }, [overlay]);
 
-  // Глобальный перехват клавиатуры (Ctrl+C, Esc)
+  // Глобальный перехват клавиатуры (Ctrl+C, Esc, Shift+Tab)
   useInput((input, key) => {
+    if (key.tab && key.shift && !overlay) {
+      setMode(nextMode(mode));
+      return;
+    }
+
     if (key.ctrl && input === 'c') {
       if (status === 'working') {
         cancelOverlay();
@@ -192,7 +207,8 @@ export function App({ session }) {
       startedAt,
       getLastActivity: () => lastActivityRef.current,
       queuedCount: queued.length,
-      waitingForUser: overlay?.kind === 'approval'
+      waitingForUser: overlay?.kind === 'approval',
+      mode
     })
   );
 }

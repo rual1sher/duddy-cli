@@ -12,6 +12,7 @@ import { fetchKeyInfo } from '../../llm/modelInfo.js';
 import { buildUserContent } from '../../images.js';
 import { describeToolStart } from '../../toolDisplay.js';
 import { recordRequest } from '../../models/limits.js';
+import { PLAN_MODE_PROMPT } from '../../modes.js';
 
 /**
  * Формирует запись о завершении агентного хода с длительностью, токенами и списком изменений
@@ -214,8 +215,12 @@ export function useAgentTurn({
 
     const content = buildUserContent(trimmed, images);
 
+    const systemContent = toolCtxRef.current?.mode === 'plan'
+      ? `${session.systemPrompt}\n\n${PLAN_MODE_PROMPT}`
+      : session.systemPrompt;
+
     const messagesToSend = [
-      { role: 'system', content: session.systemPrompt },
+      { role: 'system', content: systemContent },
       ...(session.messages || []),
       { role: 'user', content }
     ];

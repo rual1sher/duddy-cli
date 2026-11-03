@@ -6,6 +6,8 @@ import React, { useState, useEffect } from 'react';
 import { Box, Text, Spacer } from 'ink';
 import { getProvider } from '../providers.js';
 import { formatDuration } from '../formatter.js';
+import { MODE_INFO } from '../modes.js';
+import { theme } from '../theme.js';
 
 const h = React.createElement;
 
@@ -22,9 +24,11 @@ const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', 
  * @param {() => number} [props.getLastActivity]
  * @param {number} [props.queuedCount=0]
  * @param {boolean} [props.waitingForUser=false]
+ * @param {string} [props.mode='default']
  * @returns {React.ReactElement}
  */
-export function StatusBar({ status, session, phase, startedAt, getLastActivity, queuedCount = 0, waitingForUser = false }) {
+export function StatusBar({ status, session, phase, startedAt, getLastActivity, queuedCount = 0, waitingForUser = false, mode = 'default' }) {
+  const t = theme();
   const [frameIndex, setFrameIndex] = useState(0);
   const [now, setNow] = useState(Date.now());
 
@@ -58,15 +62,18 @@ export function StatusBar({ status, session, phase, startedAt, getLastActivity, 
       h(
         Text,
         { wrap: 'truncate-end' },
-        h(Text, { color: '#38bdf8' }, `${spinnerChar} ${phaseName}… ${formatDuration(elapsed)}`),
+        h(Text, { color: t.accent }, `${spinnerChar} ${phaseName}… ${formatDuration(elapsed)}`),
         isSlow
-          ? h(Text, { color: '#f59e0b' }, ` · нет ответа ${formatDuration(silent)}`)
+          ? h(Text, { color: t.warning }, ` · нет ответа ${formatDuration(silent)}`)
           : null,
-        h(Text, { color: '#64748b', dimColor: true }, ` · ${label}`),
+        h(Text, { color: t.subtle, dimColor: true }, ` · ${label}`),
+        mode !== 'default' && MODE_INFO[mode]?.label
+          ? h(Text, { color: t[MODE_INFO[mode].color] || MODE_INFO[mode].color }, ` · ${MODE_INFO[mode].label}`)
+          : null,
         queuedCount > 0
-          ? h(Text, { color: '#64748b', dimColor: true }, ` · в очереди: ${queuedCount}`)
+          ? h(Text, { color: t.subtle, dimColor: true }, ` · в очереди: ${queuedCount}`)
           : null,
-        h(Text, { color: '#64748b', dimColor: true }, ' · Esc — прервать')
+        h(Text, { color: t.subtle, dimColor: true }, ' · Esc — прервать')
       )
     );
   }
@@ -85,13 +92,13 @@ export function StatusBar({ status, session, phase, startedAt, getLastActivity, 
 
   const rightParts = [];
   if (session?.lastTurnMs) {
-    rightParts.push(h(Text, { key: 'turn', color: '#94a3b8' }, `⏱ ${formatDuration(session.lastTurnMs)}`));
+    rightParts.push(h(Text, { key: 'turn', color: t.muted }, `⏱ ${formatDuration(session.lastTurnMs)}`));
   }
 
   if (session?.lastUsage?.total_tokens) {
     const total = session.lastUsage.total_tokens;
     const tokFormatted = total >= 1000 ? `${(total / 1000).toFixed(1)}k` : `${total}`;
-    rightParts.push(h(Text, { key: 'tok', color: '#10b981' }, `${tokFormatted} tok`));
+    rightParts.push(h(Text, { key: 'tok', color: t.success }, `${tokFormatted} tok`));
 
     if (session?.contextLength) {
       const remaining = Math.max(0, session.contextLength - total);
@@ -104,7 +111,7 @@ export function StatusBar({ status, session, phase, startedAt, getLastActivity, 
         remFormatted = `${remaining}`;
       }
       rightParts.push(
-        h(Text, { key: 'rem', color: '#64748b', dimColor: true }, `осталось ${remFormatted}`)
+        h(Text, { key: 'rem', color: t.subtle, dimColor: true }, `осталось ${remFormatted}`)
       );
     }
   }
@@ -118,10 +125,13 @@ export function StatusBar({ status, session, phase, startedAt, getLastActivity, 
       h(
         Text,
         { wrap: 'truncate-end' },
-        h(Text, { bold: true, color: '#38bdf8' }, model),
-        routedSuffix ? h(Text, { color: '#64748b' }, routedSuffix) : null,
-        h(Text, { color: '#64748b', dimColor: true }, ` · ${provider.title}`),
-        effortSuffix ? h(Text, { color: '#64748b', dimColor: true }, effortSuffix) : null
+        h(Text, { bold: true, color: t.accent }, model),
+        routedSuffix ? h(Text, { color: t.subtle }, routedSuffix) : null,
+        h(Text, { color: t.subtle, dimColor: true }, ` · ${provider.title}`),
+        effortSuffix ? h(Text, { color: t.subtle, dimColor: true }, effortSuffix) : null,
+        mode !== 'default' && MODE_INFO[mode]?.label
+          ? h(Text, { color: t[MODE_INFO[mode].color] || MODE_INFO[mode].color }, ` · ${MODE_INFO[mode].label}`)
+          : null
       )
     ),
     h(Spacer, null),
@@ -136,11 +146,11 @@ export function StatusBar({ status, session, phase, startedAt, getLastActivity, 
               h(
                 React.Fragment,
                 { key: i },
-                i > 0 ? h(Text, { color: '#64748b', dimColor: true }, ' · ') : null,
+                i > 0 ? h(Text, { color: t.subtle, dimColor: true }, ' · ') : null,
                 el
               )
             )
-          : h(Text, { color: '#64748b', dimColor: true }, 'новый диалог')
+          : h(Text, { color: t.subtle, dimColor: true }, 'новый диалог')
       )
     )
   );

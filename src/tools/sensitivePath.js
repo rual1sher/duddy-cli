@@ -2,7 +2,7 @@
 
 import path from 'node:path';
 
-const FORBIDDEN_PATHS = ['.config/duddy', 'duddy/checkpoints'];
+const FORBIDDEN_PATHS = ['.config/duddy'];
 
 const SENSITIVE_DIRS = new Set(['.ssh', '.gnupg', '.aws', '.azure', '.kube', '.password-store']);
 

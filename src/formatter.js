@@ -3,6 +3,7 @@
  */
 
 import chalk from 'chalk';
+import { paint } from './theme.js';
 
 /**
  * Форматирует миллисекунды в читаемую строку длительности:
@@ -39,26 +40,26 @@ export function renderLine(line, state = { inCodeBlock: false }) {
     state.inCodeBlock = !state.inCodeBlock;
     const lang = line.trim().slice(3).trim();
     return state.inCodeBlock
-      ? chalk.hex('#334155')('── [') + chalk.bold.hex('#38bdf8')(lang || 'code') + chalk.hex('#334155')('] ' + '─'.repeat(Math.max(10, 48 - (lang || 'code').length)))
-      : chalk.hex('#334155')('─'.repeat(54));
+      ? paint('border')('── [') + paint('accent').bold(lang || 'code') + paint('border')('] ' + '─'.repeat(Math.max(10, 48 - (lang || 'code').length)))
+      : paint('border')('─'.repeat(54));
   }
 
   if (state.inCodeBlock) {
     // Pure code: clean syntax coloring, no prefix characters so copying is 100% clean
-    return chalk.greenBright(line);
+    return paint('success')(line);
   }
 
   return line
     // Headings
-    .replace(/^### (.*$)/gim, (_, p1) => chalk.bold.magenta('  ▸ ' + p1))
-    .replace(/^## (.*$)/gim, (_, p1) => chalk.bold.cyan('■ ' + p1))
-    .replace(/^# (.*$)/gim, (_, p1) => chalk.bold.yellow('◆ ' + p1))
+    .replace(/^### (.*$)/gim, (_, p1) => paint('accent').bold('  ▸ ' + p1))
+    .replace(/^## (.*$)/gim, (_, p1) => paint('accent').bold('■ ' + p1))
+    .replace(/^# (.*$)/gim, (_, p1) => paint('warning').bold('◆ ' + p1))
     // Bold **text**
     .replace(/\*\*(.*?)\*\*/g, (_, p1) => chalk.bold(p1))
     // Italic *text*
     .replace(/(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)/g, (_, p1) => chalk.italic(p1))
     // Inline code `cmd`
-    .replace(/`([^`]+)`/g, (_, p1) => chalk.cyanBright(p1))
+    .replace(/`([^`]+)`/g, (_, p1) => paint('accent')(p1))
     // Bullet lists
     .replace(/^(\s*)[-*]\s+/gm, '$1  • ')
     // Numbered lists
@@ -77,7 +78,7 @@ export function renderMarkdown(text) {
   const lines = text.split('\n');
   const result = lines.map(line => renderLine(line, state));
   if (state.inCodeBlock) {
-    result.push(chalk.hex('#334155')('─'.repeat(54)));
+    result.push(paint('border')('─'.repeat(54)));
   }
   return result;
 }
@@ -120,7 +121,7 @@ export class AnimatedTerminalRenderer {
       this.lineBuffer = '';
     }
     if (this.state.inCodeBlock) {
-      process.stdout.write(chalk.hex('#334155')('─'.repeat(54)) + '\n');
+      process.stdout.write(paint('border')('─'.repeat(54)) + '\n');
       this.state.inCodeBlock = false;
     }
   }

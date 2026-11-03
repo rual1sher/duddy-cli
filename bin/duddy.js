@@ -10,8 +10,8 @@ import { handleModelError, errorText } from "../src/errors.js";
 import { createPlainRenderer } from "../src/plainRenderer.js";
 import { formatDuration, formatTurnUsage } from "../src/formatter.js";
 import { buildProjectContext } from "../src/projectContext.js";
-import { undoLastCheckpoint } from "../src/tools/checkpoints.js";
 import chalk from "chalk";
+import { setTheme, paint } from "../src/theme.js";
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -25,6 +25,7 @@ async function readStdin() {
 
 async function main() {
   const config = loadConfig();
+  setTheme(config.theme);
   const provider = config.provider || "openrouter";
   const apiKey = getActiveApiKey(config);
 
@@ -33,59 +34,34 @@ async function main() {
   // Handle flags
   if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
     console.log(`
-${chalk.bold.cyan("Duddy")} - Terminal AI Assistant for Linux & DevOps
+${paint('accent').bold("Duddy")} - Terminal AI Assistant for Linux & DevOps
 
 ${chalk.bold("Usage:")}
-  ${chalk.green("duddy")}                       Start interactive chat session (like agy)
-  ${chalk.green('duddy "your question"')}       Ask a quick one-off question
-  ${chalk.green('cat error.log | duddy "explain"')} Analyze piped input
+  ${paint('success')("duddy")}                       Start interactive chat session (like agy)
+  ${paint('success')('duddy "your question"')}       Ask a quick one-off question
+  ${paint('success')('cat error.log | duddy "explain"')} Analyze piped input
 
 ${chalk.bold("Options:")}
-  ${chalk.yellow("-y, --yes")}   Automatically confirm all tool actions without prompt
-  ${chalk.yellow("-h, --help")}  Show help
-  ${chalk.yellow("-v, --version")} Show version
-  ${chalk.yellow("--undo")}    Откатить последний ход агента в текущей папке
+  ${paint('warning')("-y, --yes")}   Automatically confirm all tool actions without prompt
+  ${paint('warning')("-h, --help")}  Show help
+  ${paint('warning')("-v, --version")} Show version
 
 ${chalk.bold("Interactive Commands:")}
-  ${chalk.yellow("/model")}   Список моделей ваших провайдеров с поиском
-  ${chalk.yellow("/effort")}  Set reasoning level (auto, low, medium, high)
-  ${chalk.yellow("/login")}   Login: OpenRouter, Google AI Studio or xAI
-  ${chalk.yellow("/clear")}   Clear conversation context
-  ${chalk.yellow("/context")} Show context window and history
-  ${chalk.yellow("/usage")}   Show model limits and token spend
-  ${chalk.yellow("/undo")}    Откатить последний ход агента (изменения файлов)
-  ${chalk.yellow("/exit")}    Quit session
+  ${paint('warning')("/model")}   Список моделей ваших провайдеров с поиском
+  ${paint('warning')("/effort")}  Set reasoning level (auto, low, medium, high)
+  ${paint('warning')("/theme")}   Выбрать цветовую тему
+  ${paint('warning')("/login")}   Login: OpenRouter, Google AI Studio or xAI
+  ${paint('warning')("/clear")}   Clear conversation context
+  ${paint('warning')("/context")} Show context window and history
+  ${paint('warning')("/usage")}   Show model limits and token spend
+  ${paint('warning')("/exit")}    Quit session
+  ${paint('warning')("Shift+Tab")} Режим: обычный → правки без подтверждения → план → авто
 `);
     process.exit(0);
   }
 
   if (rawArgs.includes("--version") || rawArgs.includes("-v")) {
     console.log(`duddy v${pkg.version}`);
-    process.exit(0);
-  }
-
-  if (rawArgs.includes("--undo")) {
-    const result = await undoLastCheckpoint(fs.realpathSync(process.cwd()));
-    if (result === null) {
-      console.log("Нечего отменять.");
-      process.exit(1);
-    }
-    if (result.restored.length > 0) {
-      console.log("Восстановлено:");
-      for (const p of result.restored) {
-        console.log(`  ${p}`);
-      }
-    }
-    if (result.conflicts.length > 0) {
-      console.log("Конфликты (файлы изменились после хода, не тронуты):");
-      for (const p of result.conflicts) {
-        console.log(`  ${p}`);
-      }
-      if (result.backupDir) {
-        console.log(`Резервные копии: ${result.backupDir}`);
-      }
-      process.exit(1);
-    }
     process.exit(0);
   }
 
@@ -131,7 +107,7 @@ ${chalk.bold("Interactive Commands:")}
       const p = getProvider(session.provider);
       const envHint = p.envVars.join(" или ");
       console.error(
-        chalk.red(
+        paint('error')(
           `Error: ${p.title} API key not configured. Run \`duddy\` interactively or set ${envHint}.`,
         ),
       );
@@ -175,18 +151,18 @@ ${chalk.bold("Interactive Commands:")}
       const usageText = formatTurnUsage(turnUsage);
       const tokenInfo = usageText ? ` · ${usageText}` : "";
       console.log(
-        chalk.hex("#334155")("╰─ ") +
-          chalk.hex("#10b981")("✔ Готово") +
-          chalk.hex("#64748b")(` · ${durationStr}${tokenInfo}\n`),
+        paint('border')("╰─ ") +
+          paint('success')("✔ Готово") +
+          paint('subtle')(` · ${durationStr}${tokenInfo}\n`),
       );
     } catch (err) {
       if (controller.signal.aborted || err?.name === "AbortError") {
-        console.error(chalk.yellow("\nОстановлено"));
+        console.error(paint('warning')("\nОстановлено"));
         process.exitCode = 130;
       } else {
-        console.error(chalk.red(`\nError: ${errorText(err)}`));
+        console.error(paint('error')(`\nError: ${errorText(err)}`));
         const hint = handleModelError(err, session);
-        if (hint) console.error(chalk.yellow(`↳ ${hint}`));
+        if (hint) console.error(paint('warning')(`↳ ${hint}`));
         process.exit(1);
       }
     } finally {
@@ -202,7 +178,7 @@ ${chalk.bold("Interactive Commands:")}
   // If stdin is not TTY and no arguments or piped data provided
   if (!process.stdin.isTTY) {
     console.error(
-      chalk.yellow(
+      paint('warning')(
         'Интерактивный режим недоступен без TTY. Для разового запроса используйте: duddy "вопрос"',
       ),
     );
@@ -214,6 +190,6 @@ ${chalk.bold("Interactive Commands:")}
 }
 
 main().catch((err) => {
-  console.error(chalk.red("Fatal error:"), err);
+  console.error(paint('error')("Fatal error:"), err);
   process.exit(1);
 });

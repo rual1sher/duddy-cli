@@ -3,6 +3,7 @@
  */
 
 import chalk from 'chalk';
+import { paint } from './theme.js';
 import { loadConfig, saveConfig } from './config.js';
 import { PROVIDERS, getProvider, getProviderKey, detectProviderForModel } from './providers.js';
 import { findModel, clearCatalogCache, catalogCache } from './models/catalog.js';
@@ -20,7 +21,7 @@ export const AVAILABLE_COMMANDS = [
   { cmd: '/clear', desc: 'Очистить историю диалога и экран' },
   { cmd: '/context', desc: 'Заполнение окна контекста и истории диалога' },
   { cmd: '/usage', desc: 'Лимиты моделей и расход токенов' },
-  { cmd: '/undo', desc: 'Отменить изменения файлов последнего хода агента' },
+  { cmd: '/theme', desc: 'Выбрать цветовую тему' },
   { cmd: '/help', desc: 'Показать список всех команд' },
   { cmd: '/exit', desc: 'Выйти из Duddy (или /quit)' }
 ];
@@ -184,11 +185,11 @@ function makeProgressBar(percent, width = 16) {
   const filled = Math.round((p / 100) * width);
   const empty = width - filled;
 
-  let color = chalk.hex('#10b981');
-  if (p >= 80) color = chalk.hex('#ef4444');
-  else if (p >= 50) color = chalk.hex('#f59e0b');
+  let color = paint('success');
+  if (p >= 80) color = paint('error');
+  else if (p >= 50) color = paint('warning');
 
-  return color('█'.repeat(filled)) + chalk.hex('#334155')('░'.repeat(empty)) + ' ' + color((p + '%').padStart(4));
+  return color('█'.repeat(filled)) + paint('border')('░'.repeat(empty)) + ' ' + color((p + '%').padStart(4));
 }
 
 function getTimeUntilMidnightUTC() {
@@ -290,8 +291,8 @@ export function openRouterLimitLines(keyInfo) {
     const timeUntilReset = getTimeUntilMidnightUTC();
     lines.push(
       chalk.bold('  🌟 Дневной лимит бесплатных запросов (Daily Free):'),
-      '  ' + makeProgressBar(freePct) + chalk.dim('  ·  ') + chalk.hex('#94a3b8')(`${used} из ${limit} запросов`) + chalk.hex('#10b981')(` (${remaining} осталось)`),
-      chalk.dim(`  ↳ Сбрасывается каждые сутки в 00:00 UTC (до сброса осталось: ${chalk.hex('#38bdf8')(timeUntilReset)})\n`)
+      '  ' + makeProgressBar(freePct) + chalk.dim('  ·  ') + paint('muted')(`${used} из ${limit} запросов`) + paint('success')(` (${remaining} осталось)`),
+      chalk.dim(`  ↳ Сбрасывается каждые сутки в 00:00 UTC (до сброса осталось: ${paint('accent')(timeUntilReset)})\n`)
     );
   }
 
@@ -305,13 +306,13 @@ export function openRouterLimitLines(keyInfo) {
     const limitPct = Math.round((totalSpend / keyLimit) * 100);
     lines.push(
       chalk.bold('  💳 Баланс и лимиты ключа:'),
-      '  ' + makeProgressBar(limitPct) + chalk.dim('  ·  ') + chalk.hex('#94a3b8')(`$${totalSpend.toFixed(2)} из $${keyLimit.toFixed(2)} лимита`) + chalk.hex('#10b981')(` ($${Number(keyInfo.limit_remaining || 0).toFixed(2)} осталось)`)
+      '  ' + makeProgressBar(limitPct) + chalk.dim('  ·  ') + paint('muted')(`$${totalSpend.toFixed(2)} из $${keyLimit.toFixed(2)} лимита`) + paint('success')(` ($${Number(keyInfo.limit_remaining || 0).toFixed(2)} осталось)`)
     );
   }
 
   if (keyInfo) {
     lines.push(
-      `  День: ${chalk.hex('#38bdf8')(`$${dailySpend}`)} · Неделя: ${chalk.hex('#38bdf8')(`$${weeklySpend}`)} · Месяц: ${chalk.hex('#38bdf8')(`$${monthlySpend}`)}`,
+      `  День: ${paint('accent')(`$${dailySpend}`)} · Неделя: ${paint('accent')(`$${weeklySpend}`)} · Месяц: ${paint('accent')(`$${monthlySpend}`)}`,
       ''
     );
   }
@@ -337,14 +338,14 @@ export async function contextLines(session) {
   const histPct = Math.round((turns / MAX_HISTORY_TURNS) * 100);
 
   const lines = [
-    chalk.bold.cyan(`🧠 Контекст (${session.model})`),
+    paint('accent').bold(`🧠 Контекст (${session.model})`),
     ''
   ];
 
   if (!session.lastUsage) {
     lines.push(
       chalk.dim('  Данных пока нет, они появятся после первого ответа модели'),
-      chalk.dim(`  ↳ Размер окна контекста: ${chalk.hex('#94a3b8')(`${maxContext.toLocaleString('ru-RU')} tok`)}\n`)
+      chalk.dim(`  ↳ Размер окна контекста: ${paint('muted')(`${maxContext.toLocaleString('ru-RU')} tok`)}\n`)
     );
   } else {
     const lastTokens = session.lastUsage?.total_tokens ?? 0;
@@ -352,18 +353,18 @@ export async function contextLines(session) {
     const contextUsedPct = Math.min(100, Math.max(0, Math.round((lastTokens / maxContext) * 100)));
 
     lines.push(
-      chalk.bold(`  🧠 Окно контекста (${chalk.hex('#38bdf8')(session.model)}):`),
+      chalk.bold(`  🧠 Окно контекста (${paint('accent')(session.model)}):`),
       '  ' + makeProgressBar(contextUsedPct) + chalk.dim('  ·  ') +
-        chalk.hex('#94a3b8')(`${lastTokens.toLocaleString('ru-RU')} из ${maxContext.toLocaleString('ru-RU')} tok`) +
-        chalk.hex('#10b981')(` (${remainingTokens.toLocaleString('ru-RU')} свободно)`),
-      chalk.dim(`  ↳ Занято в текущем контексте: ${chalk.bold.hex('#f59e0b')(lastTokens.toLocaleString('ru-RU'))} токенов (${contextUsedPct}%)`),
-      chalk.dim(`  ↳ Осталось свободно в окне модели: ${chalk.bold.hex('#10b981')(remainingTokens.toLocaleString('ru-RU'))} токенов (${100 - contextUsedPct}%)\n`)
+        paint('muted')(`${lastTokens.toLocaleString('ru-RU')} из ${maxContext.toLocaleString('ru-RU')} tok`) +
+        paint('success')(` (${remainingTokens.toLocaleString('ru-RU')} свободно)`),
+      chalk.dim(`  ↳ Занято в текущем контексте: ${paint('warning').bold(lastTokens.toLocaleString('ru-RU'))} токенов (${contextUsedPct}%)`),
+      chalk.dim(`  ↳ Осталось свободно в окне модели: ${paint('success').bold(remainingTokens.toLocaleString('ru-RU'))} токенов (${100 - contextUsedPct}%)\n`)
     );
   }
 
   lines.push(
     chalk.bold('  📦 Буфер памяти диалога (Context History):'),
-    '  ' + makeProgressBar(histPct) + chalk.dim('  ·  ') + chalk.hex('#94a3b8')(`${turns} из ${MAX_HISTORY_TURNS} ходов`),
+    '  ' + makeProgressBar(histPct) + chalk.dim('  ·  ') + paint('muted')(`${turns} из ${MAX_HISTORY_TURNS} ходов`),
     chalk.dim(`  ↳ Запросов в текущем сеансе: ${chalk.bold(turns)}`)
   );
 
@@ -395,7 +396,7 @@ export async function usageLines(session) {
   const provider = getProvider(session.provider);
 
   const lines = [
-    chalk.bold.cyan('📊 Лимиты и расход'),
+    paint('accent').bold('📊 Лимиты и расход'),
     ''
   ];
 
@@ -554,7 +555,7 @@ export async function usageLines(session) {
 
   lines.push('');
   lines.push(`Всего за сессию: токенов ${formatCount(session.totalTokens)}`);
-  lines.push(chalk.gray('Счётчики учитывают только запросы через duddy, день считается по UTC.'));
+  lines.push(paint('subtle')('Счётчики учитывают только запросы через duddy, день считается по UTC.'));
 
   return lines;
 }
@@ -566,18 +567,19 @@ export async function usageLines(session) {
  */
 export function helpLines() {
   const lines = [
-    chalk.bold.cyan('⚡ Доступные слеш-команды:')
+    paint('accent').bold('⚡ Доступные слеш-команды:')
   ];
   for (const item of AVAILABLE_COMMANDS) {
-    lines.push(`  ${chalk.yellow(item.cmd.padEnd(16))} ${chalk.dim('—')} ${item.desc}`);
+    lines.push(`  ${paint('warning')(item.cmd.padEnd(16))} ${chalk.dim('—')} ${item.desc}`);
   }
   lines.push('');
   lines.push(chalk.dim('💡 Подсказки:'));
   lines.push(chalk.dim('  / — команды'));
+  lines.push(chalk.dim('  Shift+Tab — режим: обычный → правки без подтверждения → план → авто'));
   lines.push(chalk.dim('  Esc — прервать ответ / очистить ввод'));
   lines.push(chalk.dim('  Ctrl+C ×2 — выход'));
   lines.push('');
-  lines.push(chalk.bold.hex('#38bdf8')('🛠️  Файловые операции (AI Agent):'));
+  lines.push(paint('accent').bold('🛠️  Файловые операции (AI Agent):'));
   lines.push(chalk.dim('  Попросите создать/прочитать/изменить файл — Duddy спросит подтверждение.'));
   return lines;
 }

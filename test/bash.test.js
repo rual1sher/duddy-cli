@@ -132,7 +132,7 @@ test('классификация: упоминание секретов и на�
   for (const cmd of ['cat .env', 'head -1 .env.production', 'cp .env /tmp/x', 'less ./secrets.json', 'grep x ~/.ssh/config', 'cat "$HOME/.aws/credentials"', 'tar czf a.tgz .ssh']) {
     assert.strictEqual(level(cmd), 'dangerous', cmd);
   }
-  for (const cmd of ['cat ~/.config/duddy/config.json', 'cp $HOME/.config/duddy/config.json x', 'ls ~/.local/state/duddy/checkpoints']) {
+  for (const cmd of ['cat ~/.config/duddy/config.json', 'cp $HOME/.config/duddy/config.json x']) {
     assert.strictEqual(level(cmd), 'forbidden', cmd);
   }
 });

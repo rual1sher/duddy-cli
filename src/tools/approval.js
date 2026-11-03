@@ -39,7 +39,11 @@ export async function requestApproval(name, relPath, ctx = {}, preview = [], { s
       ctx.allowedCommands ??= new Set();
       ctx.allowedCommands.add(commandKey);
     } else {
-      ctx.autoApprove = true;
+      if (typeof ctx.setMode === 'function') {
+        ctx.setMode('acceptEdits');
+      } else {
+        ctx.autoApprove = true;
+      }
     }
     return { approved: true };
   }

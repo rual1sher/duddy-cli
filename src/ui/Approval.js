@@ -4,6 +4,7 @@
 
 import React, { useState } from 'react';
 import { Box, Text, useInput, usePaste } from 'ink';
+import { theme } from '../theme.js';
 
 const h = React.createElement;
 
@@ -26,6 +27,7 @@ const CHOICES = [
  * @returns {React.ReactElement}
  */
 export function Approval({ name, relPath, preview = [], sensitive = false, scope = 'file', onResolve }) {
+  const t = theme();
   const allLabel = scope === 'command' ? 'Да, и не спрашивать эту команду в этой сессии' : 'Да, и не спрашивать в этой сессии';
   const choices = (sensitive ? CHOICES.filter(c => c.value !== 'all') : CHOICES)
     .map(c => (c.value === 'all' ? { ...c, label: allLabel } : c));
@@ -71,30 +73,34 @@ export function Approval({ name, relPath, preview = [], sensitive = false, scope
     Box,
     {
       borderStyle: 'round',
-      borderColor: '#f59e0b',
+      borderColor: t.warning,
       paddingX: 1,
       flexDirection: 'column',
       width: '100%'
     },
-    h(Text, { bold: true, color: '#f59e0b' }, `Разрешить ${name}: ${relPath}?`),
+    h(Text, { bold: true, color: t.warning }, `Разрешить ${name}: ${relPath}?`),
     preview.length > 0
       ? h(
           Box,
           { flexDirection: 'column', marginTop: 1, marginBottom: 1 },
           preview.map((item, idx) => {
             if (item.kind === 'del') {
-              return h(Text, { key: idx, color: '#ef4444' }, `- ${item.text}`);
+              const rawLine = `- ${item.text || ''}`;
+              const truncated = rawLine.slice(0, 140);
+              return h(Text, { key: idx, color: t.diffDelFg, backgroundColor: t.diffDelBg, wrap: 'truncate-end' }, truncated);
             }
             if (item.kind === 'add') {
-              return h(Text, { key: idx, color: '#10b981' }, `+ ${item.text}`);
+              const rawLine = `+ ${item.text || ''}`;
+              const truncated = rawLine.slice(0, 140);
+              return h(Text, { key: idx, color: t.diffAddFg, backgroundColor: t.diffAddBg, wrap: 'truncate-end' }, truncated);
             }
             if (item.kind === 'warn') {
-              return h(Text, { key: idx, color: '#f59e0b' }, item.text);
+              return h(Text, { key: idx, color: t.warning }, item.text);
             }
             if (item.kind === 'info') {
-              return h(Text, { key: idx, bold: true, color: '#f8fafc' }, item.text);
+              return h(Text, { key: idx, bold: true, color: t.text }, item.text);
             }
-            return h(Text, { key: idx, color: '#94a3b8' }, item.text);
+            return h(Text, { key: idx, color: t.muted }, item.text);
           })
         )
       : null,
@@ -106,10 +112,10 @@ export function Approval({ name, relPath, preview = [], sensitive = false, scope
         return h(
           Box,
           { key: c.value, flexDirection: 'row' },
-          h(Text, { color: isSelected ? '#38bdf8' : '#64748b' }, isSelected ? '❯ ' : '  '),
+          h(Text, { color: isSelected ? t.accent : t.subtle }, isSelected ? '❯ ' : '  '),
           h(
             Text,
-            { bold: isSelected, color: isSelected ? '#38bdf8' : '#f8fafc' },
+            { bold: isSelected, color: isSelected ? t.accent : t.text },
             c.label
           )
         );
@@ -120,7 +126,7 @@ export function Approval({ name, relPath, preview = [], sensitive = false, scope
       { marginTop: 1 },
       h(
         Text,
-        { color: '#64748b', dimColor: true },
+        { color: t.subtle, dimColor: true },
         sensitive
           ? 'y — да · n / Esc — нет · ↑↓ Enter'
           : `y — да · a — ${scope === 'command' ? 'да для этой команды' : 'да на всю сессию'} · n / Esc — нет · ↑↓ Enter`
