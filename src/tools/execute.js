@@ -11,6 +11,7 @@ import {
 } from './fileTools.js';
 import { grepFiles, globFiles } from './searchTools.js';
 import { runBash } from './bashTool.js';
+import { WRITE_TOOLS } from '../modes.js';
 
 const HANDLERS = {
   create_file: createFile,
@@ -43,6 +44,12 @@ function createLog(ctx) {
  */
 export async function executeTool(name, args = {}, ctx = {}, meta = {}) {
   const log = createLog(ctx);
+
+  if (ctx?.mode === 'plan' && WRITE_TOOLS.has(name)) {
+    const msg = 'Отклонено: режим планирования (только чтение). Не меняй файлы, опиши изменения в плане.';
+    log('warn', msg);
+    return msg;
+  }
 
   try {
     if (!Object.hasOwn(HANDLERS, name)) {

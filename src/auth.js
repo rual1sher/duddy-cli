@@ -6,6 +6,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { exec } from 'node:child_process';
 import os from 'node:os';
+import { theme } from './theme.js';
 
 /**
  * Generate PKCE code verifier and code challenge (S256)
@@ -39,7 +40,9 @@ export function openBrowser(url) {
   });
 }
 
-const SUCCESS_HTML = `<!DOCTYPE html>
+function getSuccessHtml() {
+  const t = theme();
+  return `<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
@@ -49,8 +52,8 @@ const SUCCESS_HTML = `<!DOCTYPE html>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      background: #090d16;
-      color: #f8fafc;
+      background: ${t.inverse};
+      color: ${t.text};
       display: flex;
       align-items: center;
       justify-content: center;
@@ -58,8 +61,8 @@ const SUCCESS_HTML = `<!DOCTYPE html>
       padding: 20px;
     }
     .card {
-      background: #0f172a;
-      border: 1px solid #1e293b;
+      background: ${t.surface};
+      border: 1px solid ${t.border};
       border-radius: 20px;
       padding: 44px 36px;
       text-align: center;
@@ -72,7 +75,7 @@ const SUCCESS_HTML = `<!DOCTYPE html>
       border-radius: 50%;
       background: rgba(16, 185, 129, 0.12);
       border: 1px solid rgba(16, 185, 129, 0.3);
-      color: #10b981;
+      color: ${t.success};
       font-size: 32px;
       display: flex;
       align-items: center;
@@ -80,14 +83,14 @@ const SUCCESS_HTML = `<!DOCTYPE html>
       margin: 0 auto 20px;
     }
     h1 {
-      color: #38bdf8;
+      color: ${t.accent};
       font-size: 26px;
       font-weight: 700;
       margin-bottom: 12px;
       letter-spacing: -0.5px;
     }
     p {
-      color: #94a3b8;
+      color: ${t.muted};
       font-size: 15px;
       line-height: 1.6;
       margin-bottom: 24px;
@@ -95,12 +98,12 @@ const SUCCESS_HTML = `<!DOCTYPE html>
     .badge {
       display: inline-block;
       padding: 6px 16px;
-      background: #1e293b;
-      color: #38bdf8;
+      background: ${t.surface};
+      color: ${t.accent};
       border-radius: 9999px;
       font-size: 13px;
       font-weight: 600;
-      border: 1px solid #334155;
+      border: 1px solid ${t.border};
     }
   </style>
 </head>
@@ -118,6 +121,7 @@ const SUCCESS_HTML = `<!DOCTYPE html>
   </script>
 </body>
 </html>`;
+}
 
 /**
  * Escapes unsafe HTML characters to prevent XSS.
@@ -187,7 +191,7 @@ export function startBrowserLogin() {
 
         if (code) {
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-          res.end(SUCCESS_HTML);
+          res.end(getSuccessHtml());
 
           try {
             const exchangeRes = await fetch('https://openrouter.ai/api/v1/auth/keys', {

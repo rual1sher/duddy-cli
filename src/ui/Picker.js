@@ -4,6 +4,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { theme } from '../theme.js';
 
 const h = React.createElement;
 
@@ -19,6 +20,7 @@ const PAGE_SIZE = 10;
  * @param {(value: any) => void} props.onSelect - Колбэк выбора
  * @param {() => void} props.onCancel - Колбэк отмены
  * @param {any} [props.initialValue] - Начальное значение для установки фокуса
+ * @param {(value: any) => React.ReactElement} [props.renderPreview] - Функция отрисовки предпросмотра выбранного элемента
  * @returns {React.ReactElement}
  */
 export function Picker({
@@ -27,8 +29,10 @@ export function Picker({
   searchable = false,
   onSelect,
   onCancel,
-  initialValue
+  initialValue,
+  renderPreview
 }) {
+  const t = theme();
   const [query, setQuery] = useState('');
 
   const initialIndex = useMemo(() => {
@@ -134,49 +138,49 @@ export function Picker({
     Box,
     {
       borderStyle: 'round',
-      borderColor: '#334155',
+      borderColor: t.border,
       paddingX: 1,
       flexDirection: 'column',
       width: '100%'
     },
-    h(Text, { bold: true, color: '#38bdf8' }, title),
+    h(Text, { bold: true, color: t.accent }, title),
     searchable
       ? h(
           Box,
           { marginTop: 1, marginBottom: 1, flexDirection: 'row' },
-          h(Text, { color: '#38bdf8' }, '🔍 '),
-          h(Text, { color: '#f8fafc' }, query),
-          h(Text, { color: '#38bdf8' }, '█')
+          h(Text, { color: t.accent }, '🔍 '),
+          h(Text, { color: t.text }, query),
+          h(Text, { color: t.accent }, '█')
         )
       : null,
     remainingAbove > 0
-      ? h(Text, { color: '#64748b', dimColor: true }, `  … ещё ${remainingAbove}`)
+      ? h(Text, { color: t.subtle, dimColor: true }, `  … ещё ${remainingAbove}`)
       : null,
     visibleItems.length === 0
-      ? h(Text, { color: '#64748b', dimColor: true }, '  (нет совпадений)')
+      ? h(Text, { color: t.subtle, dimColor: true }, '  (нет совпадений)')
       : visibleItems.map((item, i) => {
           const realIndex = start + i;
           const isSelected = realIndex === selectedIndex;
           const cursor = isSelected
-            ? h(Text, { color: '#38bdf8' }, '❯ ')
+            ? h(Text, { color: t.accent }, '❯ ')
             : h(Text, null, '  ');
           const check = item.current
-            ? h(Text, { color: '#10b981' }, '✓ ')
+            ? h(Text, { color: t.success }, '✓ ')
             : h(Text, null, '  ');
           const groupPrefix = item.group
-            ? h(Text, { color: '#64748b', dimColor: true }, `${item.group} · `)
+            ? h(Text, { color: t.subtle, dimColor: true }, `${item.group} · `)
             : null;
           const label = item.disabled
-            ? h(Text, { color: '#475569', bold: isSelected }, item.label)
-            : h(Text, { bold: isSelected, color: isSelected ? '#38bdf8' : '#f8fafc' }, item.label);
+            ? h(Text, { color: t.faint, bold: isSelected }, item.label)
+            : h(Text, { bold: isSelected, color: isSelected ? t.accent : t.text }, item.label);
           const hint = item.hint
-            ? h(Text, { color: item.disabled ? '#334155' : '#64748b', dimColor: true }, `  ${item.hint}`)
+            ? h(Text, { color: item.disabled ? t.border : t.subtle, dimColor: true }, `  ${item.hint}`)
             : null;
           let reason = null;
           if (item.disabled && item.reason) {
-            reason = h(Text, { color: '#475569' }, `  · ${item.reason}`);
+            reason = h(Text, { color: t.faint }, `  · ${item.reason}`);
           } else if (item.busy && !item.disabled && item.reason) {
-            reason = h(Text, { color: '#f59e0b' }, `  · ${item.reason}`);
+            reason = h(Text, { color: t.warning }, `  · ${item.reason}`);
           }
 
           // One Text with nested parts so a long row is cut with "…" instead of wrapping
@@ -192,12 +196,19 @@ export function Picker({
           );
         }),
     remainingBelow > 0
-      ? h(Text, { color: '#64748b', dimColor: true }, `  … ещё ${remainingBelow}`)
+      ? h(Text, { color: t.subtle, dimColor: true }, `  … ещё ${remainingBelow}`)
+      : null,
+    renderPreview && filtered[selectedIndex]
+      ? h(
+          Box,
+          { marginTop: 1, flexDirection: 'column' },
+          renderPreview(filtered[selectedIndex].value)
+        )
       : null,
     h(
       Box,
       { marginTop: 1 },
-      h(Text, { color: '#64748b', dimColor: true }, hintLine)
+      h(Text, { color: t.subtle, dimColor: true }, hintLine)
     )
   );
 }

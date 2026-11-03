@@ -5,6 +5,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { renderMarkdown } from '../formatter.js';
+import { theme } from '../theme.js';
 
 const h = React.createElement;
 
@@ -17,6 +18,7 @@ const h = React.createElement;
  * @returns {React.ReactElement|null}
  */
 export function LiveOutput({ liveTools, liveText }) {
+  const t = theme();
   const liveElements = [];
 
   if (liveTools && liveTools.length > 0) {
@@ -34,15 +36,15 @@ export function LiveOutput({ liveTools, liveText }) {
             h(
               Box,
               { flexDirection: 'row' },
-              h(Text, { color: '#38bdf8' }, '⏺ '),
-              h(Text, { bold: true, color: '#f8fafc' }, tool.display?.title || tool.name),
-              tool.target ? h(Text, { color: '#94a3b8' }, ` ${tool.target}`) : null,
-              h(Text, { color: '#94a3b8' }, '…')
+              h(Text, { color: t.accent }, '⏺ '),
+              h(Text, { bold: true, color: t.text }, tool.display?.title || tool.name),
+              tool.target ? h(Text, { color: t.muted }, ` ${tool.target}`) : null,
+              h(Text, { color: t.muted }, '…')
             ),
             filteredLogs.map((log, i) =>
               h(
                 Text,
-                { key: i, color: log.level === 'error' ? '#ef4444' : '#f59e0b' },
+                { key: i, color: log.level === 'error' ? t.error : t.warning },
                 `    ${log.text}`
               )
             )
@@ -63,7 +65,7 @@ export function LiveOutput({ liveTools, liveText }) {
             Box,
             { key: i, flexDirection: 'row' },
             i === 0
-              ? h(Text, { color: '#38bdf8' }, '⏺ ')
+              ? h(Text, { color: t.accent }, '⏺ ')
               : h(Text, null, '  '),
             h(Text, null, line)
           )

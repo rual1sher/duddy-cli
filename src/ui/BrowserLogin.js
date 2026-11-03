@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { theme } from '../theme.js';
 
 const h = React.createElement;
 
@@ -18,6 +19,7 @@ const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', 
  * @returns {React.ReactElement}
  */
 export function BrowserLogin({ url, cancel }) {
+  const t = theme();
   const [frameIndex, setFrameIndex] = useState(0);
 
   useEffect(() => {
@@ -39,23 +41,23 @@ export function BrowserLogin({ url, cancel }) {
     Box,
     {
       borderStyle: 'round',
-      borderColor: '#334155',
+      borderColor: t.border,
       paddingX: 1,
       flexDirection: 'column',
       width: '100%'
     },
-    h(Text, { bold: true, color: '#38bdf8' }, 'Вход в OpenRouter через браузер'),
+    h(Text, { bold: true, color: t.accent }, 'Вход в OpenRouter через браузер'),
     h(
       Box,
       { marginTop: 1, marginBottom: 1 },
-      h(Text, { underline: true, color: '#38bdf8' }, url)
+      h(Text, { underline: true, color: t.accent }, url)
     ),
     h(
       Box,
       { flexDirection: 'row' },
-      h(Text, { color: '#38bdf8' }, `${spinner} `),
-      h(Text, { color: '#94a3b8' }, 'Ожидание входа в браузере… '),
-      h(Text, { color: '#64748b', dimColor: true }, 'Esc — отмена')
+      h(Text, { color: t.accent }, `${spinner} `),
+      h(Text, { color: t.muted }, 'Ожидание входа в браузере… '),
+      h(Text, { color: t.subtle, dimColor: true }, 'Esc — отмена')
     )
   );
 }

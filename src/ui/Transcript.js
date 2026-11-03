@@ -5,6 +5,8 @@
 import React from 'react';
 import { Box, Text, Static } from 'ink';
 import { bannerLines } from '../banner.js';
+import { AnimatedBanner } from './AnimatedBanner.js';
+import { theme } from '../theme.js';
 
 const h = React.createElement;
 
@@ -17,6 +19,7 @@ const h = React.createElement;
  * @returns {React.ReactElement}
  */
 function renderTranscriptItem(item, index, session) {
+  const t = theme();
   switch (item.type) {
     case 'banner': {
       const lines = bannerLines({
@@ -35,8 +38,8 @@ function renderTranscriptItem(item, index, session) {
       return h(
         Box,
         { key: `user-${index}`, marginTop: 1, flexDirection: 'row' },
-        h(Text, { color: '#64748b' }, '> '),
-        h(Text, { color: '#f8fafc' }, item.text)
+        h(Text, { color: t.subtle }, '> '),
+        h(Text, { color: t.text }, item.text)
       );
 
     case 'assistant': {
@@ -66,7 +69,7 @@ function renderTranscriptItem(item, index, session) {
             Box,
             { key: i, flexDirection: 'row' },
             i === 0
-              ? h(Text, { color: '#38bdf8' }, '⏺ ')
+              ? h(Text, { color: t.accent }, '⏺ ')
               : h(Text, null, '  '),
             h(Text, null, line)
           )
@@ -75,52 +78,55 @@ function renderTranscriptItem(item, index, session) {
     }
 
     case 'tool': {
-      const dotColor = !item.ok ? '#ef4444' : item.change ? '#10b981' : '#64748b';
+      const dotColor = !item.ok ? t.error : item.change ? t.success : t.subtle;
       const hasTitle = Boolean(item.title);
       const headerChildren = [
         h(Text, { color: dotColor }, '⏺ '),
-        h(Text, { bold: true, color: '#f8fafc' }, item.title || item.name)
+        h(Text, { bold: true, color: t.text }, item.title || item.name)
       ];
 
       if (item.target) {
         if (hasTitle) {
-          headerChildren.push(h(Text, { color: '#94a3b8' }, ` ${item.target}`));
+          headerChildren.push(h(Text, { color: t.muted }, ` ${item.target}`));
         } else {
-          headerChildren.push(h(Text, { color: '#94a3b8' }, `(${item.target})`));
+          headerChildren.push(h(Text, { color: t.muted }, `(${item.target})`));
         }
       }
 
-      const summaryColor = item.ok ? '#94a3b8' : '#ef4444';
+      const summaryColor = item.ok ? t.muted : t.error;
       const summaryElement = item.summary
         ? h(Text, { color: summaryColor, dimColor: Boolean(item.ok) }, `  ⎿  ${item.summary}`)
         : null;
 
       const diffElements = (item.diff || []).map((d, i) => {
-        let prefix = '';
-        let color = '#94a3b8';
-        let isDim = false;
-
         if (d.kind === 'add') {
-          prefix = '+ ';
-          color = '#10b981';
-        } else if (d.kind === 'del') {
-          prefix = '- ';
-          color = '#ef4444';
-        } else if (d.kind === 'more') {
-          prefix = '';
-          color = '#94a3b8';
-          isDim = true;
+          const rawLine = `+ ${d.text || ''}`;
+          const truncated = rawLine.slice(0, 140);
+          return h(
+            Text,
+            { key: `diff-${i}`, wrap: 'truncate-end' },
+            '     ',
+            h(Text, { color: t.diffAddFg, backgroundColor: t.diffAddBg }, truncated)
+          );
         }
-
-        const rawLine = `${prefix}${d.text || ''}`;
+        if (d.kind === 'del') {
+          const rawLine = `- ${d.text || ''}`;
+          const truncated = rawLine.slice(0, 140);
+          return h(
+            Text,
+            { key: `diff-${i}`, wrap: 'truncate-end' },
+            '     ',
+            h(Text, { color: t.diffDelFg, backgroundColor: t.diffDelBg }, truncated)
+          );
+        }
+        const rawLine = `${d.text || ''}`;
         const truncated = rawLine.slice(0, 140);
-
         return h(
           Text,
           {
             key: `diff-${i}`,
-            color,
-            dimColor: isDim,
+            color: t.muted,
+            dimColor: d.kind === 'more',
             wrap: 'truncate-end'
           },
           `     ${truncated}`
@@ -142,7 +148,7 @@ function renderTranscriptItem(item, index, session) {
       const logElements = filteredLogs.map((log, i) =>
         h(
           Text,
-          { key: `log-${i}`, color: log.level === 'error' ? '#ef4444' : '#f59e0b' },
+          { key: `log-${i}`, color: log.level === 'error' ? t.error : t.warning },
           `    ${log.text}`
         )
       );
@@ -158,14 +164,14 @@ function renderTranscriptItem(item, index, session) {
     }
 
     case 'note': {
-      let color = '#94a3b8';
+      let color = t.muted;
       let isDim = false;
       if (item.level === 'success') {
-        color = '#10b981';
+        color = t.success;
       } else if (item.level === 'warn') {
-        color = '#f59e0b';
+        color = t.warning;
       } else if (item.level === 'error') {
-        color = '#ef4444';
+        color = t.error;
       } else {
         isDim = true;
       }
@@ -174,7 +180,7 @@ function renderTranscriptItem(item, index, session) {
         { key: `note-${index}`, flexDirection: 'column' },
         h(Text, { color, dimColor: isDim }, item.text),
         item.hint
-          ? h(Text, { color: '#64748b', dimColor: true }, `  ↳ ${item.hint}`)
+          ? h(Text, { color: t.subtle, dimColor: true }, `  ↳ ${item.hint}`)
           : null
       );
     }
@@ -195,14 +201,14 @@ function renderTranscriptItem(item, index, session) {
 
       const doneText = h(
         Text,
-        { key: 'text', color: '#94a3b8', dimColor: true },
+        { key: 'text', color: t.muted, dimColor: true },
         `  ${item.text}`
       );
 
       if (!hasChanges) {
         return h(
           Text,
-          { key: `done-${index}`, color: '#94a3b8', dimColor: true },
+          { key: `done-${index}`, color: t.muted, dimColor: true },
           `  ${item.text}`
         );
       }
@@ -212,7 +218,7 @@ function renderTranscriptItem(item, index, session) {
         changeElements.push(
           h(
             Text,
-            { key: 'created', color: '#10b981', dimColor: true },
+            { key: 'created', color: t.success, dimColor: true },
             `  Создано: ${item.changes.created.join(', ')}`
           )
         );
@@ -221,7 +227,7 @@ function renderTranscriptItem(item, index, session) {
         changeElements.push(
           h(
             Text,
-            { key: 'modified', color: '#f59e0b', dimColor: true },
+            { key: 'modified', color: t.warning, dimColor: true },
             `  Изменено: ${item.changes.modified.join(', ')}`
           )
         );
@@ -230,7 +236,7 @@ function renderTranscriptItem(item, index, session) {
         changeElements.push(
           h(
             Text,
-            { key: 'deleted', color: '#ef4444', dimColor: true },
+            { key: 'deleted', color: t.error, dimColor: true },
             `  Удалено: ${item.changes.deleted.join(', ')}`
           )
         );
@@ -259,6 +265,12 @@ function renderTranscriptItem(item, index, session) {
  * @returns {React.ReactElement}
  */
 export function Transcript({ items, session, staticKey }) {
+  // Static печатается один раз, поэтому живой баннер рисуется в динамической
+  // области до первого сообщения, затем уходит в Static финальным кадром.
+  if (items.length === 1 && items[0].type === 'banner') {
+    return h(AnimatedBanner, { session });
+  }
+
   return h(
     Static,
     { key: staticKey, items },

@@ -6,6 +6,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Box, Text, useInput, usePaste } from 'ink';
 import TextInput from 'ink-text-input';
 import { AVAILABLE_COMMANDS } from '../session-actions.js';
+import { theme } from '../theme.js';
 import {
   readClipboardImage,
   parseImagePaths,
@@ -52,6 +53,7 @@ export function InputBox({
   imagesSupported = true,
   onSend
 }) {
+  const t = theme();
   const [value, setValue] = useState('');
   const [commandIndex, setCommandIndex] = useState(0);
   const [attachments, setAttachments] = useState([]);
@@ -208,7 +210,7 @@ export function InputBox({
         setCommandIndex(prev => (prev + 1) % filteredCommands.length);
         return;
       }
-      if (key.tab) {
+      if (key.tab && !key.shift) {
         const target = filteredCommands[commandIndex]?.cmd || filteredCommands[0].cmd;
         setValueAtEnd(target);
         return;
@@ -298,8 +300,8 @@ export function InputBox({
             h(
               Box,
               { key: idx, flexDirection: 'row' },
-              h(Text, { color: '#64748b' }, '⏳ '),
-              h(Text, { color: '#94a3b8', dimColor: true }, text)
+              h(Text, { color: t.subtle }, '⏳ '),
+              h(Text, { color: t.muted, dimColor: true }, text)
             )
           )
         )
@@ -312,7 +314,7 @@ export function InputBox({
             h(
               Box,
               { key: att.n, flexShrink: 0 },
-              h(Text, { color: '#94a3b8' }, `📎 ${att.label} · ${formatBytes(att.data?.length || 0)}`)
+              h(Text, { color: t.muted }, `📎 ${att.label} · ${formatBytes(att.data?.length || 0)}`)
             )
           )
         )
@@ -321,11 +323,11 @@ export function InputBox({
       Box,
       {
         borderStyle: 'round',
-        borderColor: '#38bdf8',
+        borderColor: t.accent,
         paddingX: 1,
         width: '100%'
       },
-      h(Text, { color: '#38bdf8' }, '> '),
+      h(Text, { color: t.accent }, '> '),
       h(TextInput, {
         key: `input-${inputKey}`,
         value,
@@ -343,7 +345,7 @@ export function InputBox({
       ? h(
           Box,
           { paddingLeft: 1 },
-          h(Text, { color: '#f59e0b' }, notice)
+          h(Text, { color: t.warning }, notice)
         )
       : null,
     isCommandMode
@@ -357,20 +359,20 @@ export function InputBox({
                   return h(
                     Box,
                     { key: item.cmd, flexDirection: 'row' },
-                    h(Text, { color: '#38bdf8' }, '❯ '),
-                    h(Text, { bold: true, color: '#38bdf8' }, item.cmd.padEnd(10) + '  '),
-                    h(Text, { color: '#94a3b8' }, item.desc)
+                    h(Text, { color: t.accent }, '❯ '),
+                    h(Text, { bold: true, color: t.accent }, item.cmd.padEnd(10) + '  '),
+                    h(Text, { color: t.muted }, item.desc)
                   );
                 }
                 return h(
                   Box,
                   { key: item.cmd, flexDirection: 'row' },
                   h(Text, null, '  '),
-                  h(Text, { color: '#64748b' }, item.cmd.padEnd(10) + '  '),
-                  h(Text, { color: '#64748b', dimColor: true }, item.desc)
+                  h(Text, { color: t.subtle }, item.cmd.padEnd(10) + '  '),
+                  h(Text, { color: t.subtle, dimColor: true }, item.desc)
                 );
               })
-            : h(Text, { color: '#64748b', dimColor: true }, '  нет такой команды')
+            : h(Text, { color: t.subtle, dimColor: true }, '  нет такой команды')
         )
       : null
   );

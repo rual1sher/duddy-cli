@@ -1,10 +1,9 @@
-import fs from 'node:fs';
 import { streamChatCompletion } from './llm/stream.js';
 import { AGENT_TOOLS } from './tools/definitions.js';
 import { executeTool } from './tools/execute.js';
 import { describeToolResult } from './toolDisplay.js';
-import { createCheckpoint } from './tools/checkpoints.js';
 import { compactToolResults } from './llm/compact.js';
+import { toolsForMode } from './modes.js';
 
 export const MAX_HISTORY_TURNS = 10;
 export const MAX_TOOL_TURNS = 10;
@@ -38,7 +37,6 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
   let routedModel = '';
   const activeToolCtx = toolCtx || session?.toolCtx || { autoApprove: !!session?.autoApprove, canPrompt: true };
 
-  activeToolCtx.checkpoint = createCheckpoint(fs.realpathSync(process.cwd()));
   activeToolCtx.signal = signal;
   // История между ходами обрезается, поэтому «модель видела файл» действует только в пределах хода
   activeToolCtx.fullyRead = new Map();
@@ -77,7 +75,7 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
         model: session.model,
         sessionId: session.id,
         messages,
-        tools: AGENT_TOOLS,
+        tools: toolsForMode(AGENT_TOOLS, activeToolCtx.mode),
         temperature: session.temperature ?? 0.4,
         reasoningEffort: session.reasoningEffort,
         signal,

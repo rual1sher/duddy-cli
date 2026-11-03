@@ -526,15 +526,3 @@ test('секреты в содержимом: разные виды находя
   }
 });
 
-test('каталог чекпоинтов с копиями секретов недоступен инструментам, в том числе при своём XDG_STATE_HOME', async () => {
-  const dir = path.join('state', 'duddy', 'checkpoints', '1-1', 'files');
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, '0'), 'копия', 'utf8');
-  const toolCtx = { autoApprove: true, canPrompt: true, approve: async () => 'yes' };
-
-  const read = await executeTool('read_file', { path: path.join(dir, '0') }, toolCtx);
-  assert.match(read, /^Ошибка: Доступ запрещён/);
-  const removed = await executeTool('delete_folder', { path: 'state/duddy/checkpoints' }, toolCtx);
-  assert.match(removed, /^Ошибка: Доступ запрещён/);
-  assert.ok(fsSync.existsSync(dir));
-});

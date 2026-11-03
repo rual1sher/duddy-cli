@@ -6,6 +6,7 @@ import React, { useState, useRef } from 'react';
 import { Box, Text, useInput, usePaste } from 'ink';
 import TextInput from 'ink-text-input';
 import { readClipboardText } from '../images.js';
+import { theme } from '../theme.js';
 
 const h = React.createElement;
 
@@ -33,6 +34,7 @@ function InputKeys({ onInput }) {
  * @returns {React.ReactElement}
  */
 export function SecretInput({ title, onSubmit, onCancel, placeholder = '' }) {
+  const t = theme();
   const [value, setValue] = useState('');
   const [inputKey, setInputKey] = useState(0);
   const prevValueRef = useRef('');
@@ -84,16 +86,16 @@ export function SecretInput({ title, onSubmit, onCancel, placeholder = '' }) {
     Box,
     {
       borderStyle: 'round',
-      borderColor: '#334155',
+      borderColor: t.border,
       paddingX: 1,
       flexDirection: 'column',
       width: '100%'
     },
-    h(Text, { bold: true, color: '#38bdf8' }, title),
+    h(Text, { bold: true, color: t.accent }, title),
     h(
       Box,
       { marginTop: 1, flexDirection: 'row' },
-      h(Text, { color: '#38bdf8' }, '🔑 '),
+      h(Text, { color: t.accent }, '🔑 '),
       h(TextInput, {
         key: `input-${inputKey}`,
         value,
@@ -108,7 +110,7 @@ export function SecretInput({ title, onSubmit, onCancel, placeholder = '' }) {
     h(
       Box,
       { marginTop: 1 },
-      h(Text, { color: '#64748b', dimColor: true }, 'Enter — подтвердить · Esc — отмена')
+      h(Text, { color: t.subtle, dimColor: true }, 'Enter — подтвердить · Esc — отмена')
     )
   );
 }

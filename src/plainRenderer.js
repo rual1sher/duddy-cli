@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { AnimatedTerminalRenderer, formatDuration } from './formatter.js';
 import { recordRequest } from './models/limits.js';
+import { theme, paint } from './theme.js';
 
 /**
  * Создает текстовый рендерер терминала для хода агента.
@@ -27,12 +28,12 @@ export function createPlainRenderer(session, { interactive }) {
   const spinnerText = () => {
     const elapsed = Date.now() - startedAt;
     const slowWarning = (elapsed > 20000 && !hasFirstText)
-      ? chalk.yellow(' · долго: модель может ещё думать')
+      ? paint('warning')(' · долго: модель может ещё думать')
       : '';
-    return chalk.bold.hex('#38bdf8')(`Duddy ${phaseText}… `) +
-      chalk.hex('#64748b')(`${formatDuration(elapsed)} · ${modelLabel()}`) +
+    return paint('accent').bold(`Duddy ${phaseText}… `) +
+      paint('subtle')(`${formatDuration(elapsed)} · ${modelLabel()}`) +
       slowWarning +
-      chalk.hex('#64748b')(' · Ctrl+C — прервать');
+      paint('subtle')(' · Ctrl+C — прервать');
   };
 
   let spinner = ora({
@@ -86,7 +87,7 @@ export function createPlainRenderer(session, { interactive }) {
         if (spinner && spinner.isSpinning) {
           spinner.stop();
         }
-        process.stdout.write(chalk.hex('#334155')('\n╭─ ') + chalk.bold.hex('#38bdf8')('✦ Duddy') + chalk.hex('#475569')(` [${modelLabel()}] `) + chalk.hex('#334155')('─'.repeat(26)) + '\n');
+        process.stdout.write(paint('border')('\n╭─ ') + paint('accent').bold('✦ Duddy') + paint('faint')(` [${modelLabel()}] `) + paint('border')('─'.repeat(26)) + '\n');
         startedStreaming = true;
       }
       renderer.push(delta);
@@ -105,7 +106,7 @@ export function createPlainRenderer(session, { interactive }) {
       if (wasSpinning) {
         spinner.stop();
       }
-      console.log(chalk.yellow(`⚠️  ${msg}`));
+      console.log(paint('warning')(`⚠️  ${msg}`));
       if (wasSpinning) {
         spinner.text = spinnerText();
         spinner.start();
@@ -116,7 +117,7 @@ export function createPlainRenderer(session, { interactive }) {
       if (spinner && spinner.isSpinning) {
         spinner.stop();
       }
-      console.log(chalk.hex('#38bdf8')(`\n⚙️  [Инструмент: ${chalk.bold(name)}]`));
+      console.log(paint('accent')(`\n⚙️  [Инструмент: ${chalk.bold(name)}]`));
     },
 
     onToolResult() {},
@@ -133,15 +134,15 @@ export function createPlainRenderer(session, { interactive }) {
     const line = '  ' + text;
     let colored = line;
     if (level === 'error') {
-      colored = chalk.red(line);
+      colored = paint('error')(line);
     } else if (level === 'success') {
-      colored = chalk.green(line);
+      colored = paint('success')(line);
     } else if (level === 'warn') {
-      colored = chalk.yellow(line);
+      colored = paint('warning')(line);
     } else {
       // info
       if (text.includes('📖') || text.includes('📂')) {
-        colored = chalk.hex('#38bdf8')(line);
+        colored = paint('accent')(line);
       } else {
         colored = chalk.dim(line);
       }
@@ -160,17 +161,22 @@ export function createPlainRenderer(session, { interactive }) {
 
     if (Array.isArray(preview) && preview.length > 0) {
       console.log();
+      const t = theme();
       for (const item of preview) {
         if (item.kind === 'del') {
-          console.log(chalk.red('  - ' + item.text));
+          const rawLine = `- ${item.text || ''}`;
+          const truncated = rawLine.slice(0, 140);
+          console.log('  ' + chalk.hex(t.diffDelFg).bgHex(t.diffDelBg)(truncated));
         } else if (item.kind === 'add') {
-          console.log(chalk.green('  + ' + item.text));
+          const rawLine = `+ ${item.text || ''}`;
+          const truncated = rawLine.slice(0, 140);
+          console.log('  ' + chalk.hex(t.diffAddFg).bgHex(t.diffAddBg)(truncated));
         } else if (item.kind === 'warn') {
-          console.log(chalk.yellow('  ' + item.text));
+          console.log('  ' + paint('warning')(item.text));
         } else if (item.kind === 'info') {
           console.log(chalk.bold('  ' + item.text));
         } else {
-          console.log('  ' + item.text);
+          console.log('  ' + paint('muted')(item.text));
         }
       }
     }

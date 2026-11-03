@@ -2,8 +2,7 @@
  * @fileoverview Обработка слэш-команд пользовательского интерфейса Duddy
  */
 
-import { useCallback } from 'react';
-import fs from 'node:fs';
+import React, { useCallback } from 'react';
 import {
   selectModel,
   setEffort,
@@ -14,10 +13,13 @@ import {
 } from '../../session-actions.js';
 import { listModels } from '../../models/catalog.js';
 import { UNAVAILABLE_REASONS } from '../../models/status.js';
-import { loadConfig } from '../../config.js';
+import { loadConfig, saveConfig } from '../../config.js';
 import { PROVIDERS, getProvider, detectProviderForModel, getProviderKey } from '../../providers.js';
-import { CLEAR_SCREEN } from './useResizeRedraw.js';
-import { undoLastCheckpoint } from '../../tools/checkpoints.js';
+import { clearScreenToBottom } from './useResizeRedraw.js';
+import { THEMES, THEME_IDS, getThemeId, setTheme } from '../../theme.js';
+import { ThemePreview } from '../ThemePreview.js';
+
+const h = React.createElement;
 
 const COMMAND_ALIASES = {
   ctx: 'context',
@@ -29,6 +31,9 @@ const COMMAND_ALIASES = {
   cls: 'clear',
   reset: 'clear',
   stats: 'usage',
+  themes: 'theme',
+  color: 'theme',
+  colors: 'theme',
   '?': 'help',
   '': 'help',
   quit: 'exit',
@@ -78,9 +83,8 @@ function clearConversation({ session, queueRef, setQueued, toolCtxRef, setTransc
   session.messages = [];
   session.lastRoutedModel = '';
   session.lastUsage = null;
-  toolCtxRef.current.autoApprove = Boolean(session.autoApprove);
   toolCtxRef.current.allowedCommands = new Set();
-  process.stdout.write(CLEAR_SCREEN);
+  process.stdout.write(clearScreenToBottom());
   setTranscript([
     { type: 'banner' },
     { type: 'note', level: 'success', text: 'Новый диалог' }
@@ -238,27 +242,41 @@ async function pickModel(ctx) {
 }
 
 /**
- * Отменяет изменения файлов последнего хода агента через /undo
+ * Открывает интерактивное меню выбора цветовой темы
+ *
+ * @param {object} ctx
+ * @param {object} [options]
+ * @param {() => void} [options.onDone]
  */
-async function undoLastTurn({ session, addNote }) {
-  const result = await undoLastCheckpoint(fs.realpathSync(process.cwd()));
-  if (!result) {
-    addNote('info', 'Нечего отменять');
-    return;
-  }
-  const { restored, conflicts, backupDir } = result;
-  if (restored.length > 0) {
-    const list = restored.join(', ');
-    addNote('success', `Восстановлено: ${list}`);
-    session.messages = [
-      ...(session.messages || []),
-      { role: 'user', content: `Я отменил изменения файлов: ${list}` },
-      { role: 'assistant', content: 'Понял, изменения отменены.' }
-    ];
-  }
-  if (conflicts.length > 0) {
-    addNote('warn', `Изменены после хода, не тронуты: ${conflicts.join(', ')}. Копии лежат в ${backupDir}`);
-  }
+export function openThemePicker(ctx, { onDone } = {}) {
+  const { setOverlay, setStaticKey, addNote } = ctx;
+  const items = THEME_IDS.map(id => ({
+    label: THEMES[id].title,
+    hint: THEMES[id].hint,
+    value: id,
+    current: loadConfig().theme === id
+  }));
+
+  setOverlay({
+    kind: 'picker',
+    title: 'Выбор темы',
+    items,
+    initialValue: getThemeId(),
+    renderPreview: (id) => h(ThemePreview, { themeId: id }),
+    onSelect: (id) => {
+      setOverlay(null);
+      setTheme(id);
+      saveConfig({ theme: id });
+      process.stdout.write(clearScreenToBottom());
+      setStaticKey(k => k + 1);
+      addNote('success', `Тема: ${THEMES[id].title}`);
+      onDone?.();
+    },
+    onCancel: () => {
+      setOverlay(null);
+      onDone?.();
+    }
+  });
 }
 
 /**
@@ -282,27 +300,27 @@ export function useCommands({
   startOpenRouterBrowserLogin,
   openLoginPicker
 }) {
+  const ctx = {
+    session,
+    app,
+    setTranscript,
+    addNote,
+    setOverlay,
+    setStaticKey,
+    queueRef,
+    setQueued,
+    toolCtxRef,
+    startGoogleLogin,
+    startXaiLogin,
+    startOpenRouterBrowserLogin,
+    openLoginPicker
+  };
+
   const handleCommand = useCallback(async (rawCmd) => {
     const [name, ...rest] = rawCmd.slice(1).split(' ');
     const arg = rest.join(' ').trim();
     const cmd = name.toLowerCase();
     const normalized = COMMAND_ALIASES[cmd] ?? cmd;
-
-    const ctx = {
-      session,
-      app,
-      setTranscript,
-      addNote,
-      setOverlay,
-      setStaticKey,
-      queueRef,
-      setQueued,
-      toolCtxRef,
-      startGoogleLogin,
-      startXaiLogin,
-      startOpenRouterBrowserLogin,
-      openLoginPicker
-    };
 
     switch (normalized) {
       case 'exit':
@@ -325,10 +343,6 @@ export function useCommands({
         await showUsage(ctx);
         return;
 
-      case 'undo':
-        await undoLastTurn(ctx);
-        return;
-
       case 'effort':
         changeEffort(arg, ctx);
         return;
@@ -343,6 +357,10 @@ export function useCommands({
         } else {
           await pickModel(ctx);
         }
+        return;
+
+      case 'theme':
+        openThemePicker(ctx);
         return;
 
       default:
@@ -364,5 +382,5 @@ export function useCommands({
     openLoginPicker
   ]);
 
-  return { handleCommand };
+  return { handleCommand, openThemePicker: (opts) => openThemePicker(ctx, opts) };
 }

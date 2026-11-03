@@ -348,10 +348,8 @@ export async function createFile(args, ctx, log) {
     return changedWhileWaiting(relPath, log);
   }
 
-  await ctx.checkpoint?.snapshot(fullPath);
   await fs.mkdir(path.dirname(fullPath), { recursive: true });
   await fs.writeFile(fullPath, content, 'utf8');
-  await ctx.checkpoint?.markWritten(fullPath);
   rememberFullRead(ctx, fullPath, content);
   log('success', `✔ Файл сохранен: ${relPath} (${content.length} байт)`);
   return exists
@@ -539,9 +537,7 @@ export async function editFile(args, ctx, log) {
     return changedWhileWaiting(relPath, log);
   }
 
-  await ctx.checkpoint?.snapshot(fullPath);
   await fs.writeFile(fullPath, replaceResult.content, 'utf8');
-  await ctx.checkpoint?.markWritten(fullPath);
   if (ctx.fullyRead?.has(fullPath)) {
     rememberFullRead(ctx, fullPath, replaceResult.content);
   }
@@ -575,11 +571,7 @@ export async function deleteFile(args, ctx, log) {
     return approval.message;
   }
 
-  if (ctx.checkpoint) {
-    await ctx.checkpoint.moveToBackup(fullPath);
-  } else {
-    await fs.unlink(fullPath);
-  }
+  await fs.unlink(fullPath);
   log('success', `✔ Файл удален: ${relPath}`);
   return `✓ Файл ${relPath} успешно удален.`;
 }
@@ -622,11 +614,7 @@ export async function deleteFolder(args, ctx, log) {
     return approval.message;
   }
 
-  if (ctx.checkpoint) {
-    await ctx.checkpoint.moveToBackup(fullPath);
-  } else {
-    await fs.rm(fullPath, { recursive: true, force: true });
-  }
+  await fs.rm(fullPath, { recursive: true, force: true });
   log('success', `✔ Папка удалена: ${relPath}`);
   return `✓ Папка ${relPath} со всем содержимым успешно удалена.`;
 }
