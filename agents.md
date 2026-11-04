@@ -1,13 +1,13 @@
 # 🤖 Duddy — Документация для AI-агентов и разработчиков
 
-> **Duddy** — это легковесный, высокоэффективный консольный AI-ассистент и автономный агент для Linux и DevOps, написанный на Node.js. Он работает через OpenRouter API, Google AI Studio (Gemini API напрямую) и xAI (Grok через официальный OpenAI-совместимый API), поддерживая как бесплатные модели, так и коммерческие флагманы вроде Gemini 3.8 Flash, Claude Sonnet 4.6, GPT-4.1, Grok-4.7) и умеет напрямую взаимодействовать с файловой системой проекта.
+> **Duddy** — это легковесный, высокоэффективный консольный AI-ассистент и автономный агент для Linux и DevOps, написанный на Node.js. Он работает через OpenRouter API, Google AI Studio (Gemini API напрямую) и xAI (Grok через официальный OpenAI-совместимый API), а также с локальными моделями Ollama, поддерживая как бесплатные модели, так и коммерческие флагманы вроде Gemini 3.8 Flash, Claude Sonnet 4.6, GPT-4.1, Grok-4.7) и умеет напрямую взаимодействовать с файловой системой проекта.
 
 ---
 
 ## 🛠️ Технологический стек
 
 * **Среда выполнения:** Node.js (версия >= 22.0.0, нативная поддержка ES Modules `"type": "module"`).
-* **AI Provider / SDK:** `openai` SDK (`baseURL`: OpenRouter `https://openrouter.ai/api/v1`, Google AI Studio `https://generativelanguage.googleapis.com/v1beta/openai/` или xAI `https://api.x.ai/v1`) с поддержкой Function Calling (Tool Calling), стриминга ответов и отслеживания reasoning-токенов.
+* **AI Provider / SDK:** `openai` SDK (`baseURL`: OpenRouter `https://openrouter.ai/api/v1`, Google AI Studio `https://generativelanguage.googleapis.com/v1beta/openai/` xAI `https://api.x.ai/v1` или локальная Ollama `${OLLAMA_HOST}/v1/`) с поддержкой Function Calling (Tool Calling), стриминга ответов и отслеживания reasoning-токенов.
 * **Терминальный интерфейс (CLI & TUI):**
   * `ink` (v8+) и `react` (v19+) — современный реактивный консольный интерфейс (TUI в стиле Claude Code).
   * `ink-text-input` (v6+) — поле ввода текста и скрытых ключей.
@@ -21,7 +21,7 @@
 ## 🏗️ Архитектура проекта
 
 ### Архитектура вывода и событий:
-Ядро агента полностью отделено от интерфейса: `runAgentTurn` в `src/agent.js` принимает сообщения и `toolCtx`, исполняет цикл взаимодействия с LLM и отправляет типизированные события (`onPhase`, `onModel`, `onText`, `onStepEnd`, `onToolStart`, `onToolResult`, `onWarning`, `onQueuedInjected`), а очередь сообщений забирает через `takeQueued`. В интерактивном режиме эти события принимает хук `src/ui/hooks/useAgentTurn.js`, а `src/ui/App.js` на базе Ink собирает из хуков экран: история, живой вывод, модальные оверлеи (Picker, Approval, SecretInput, BrowserLogin), поле ввода и строка статуса (до первого пользовательского сообщения баннер анимируется через `AnimatedBanner.js`; анимацию можно отключить переменной окружения `DUDDY_NO_ANIMATION=1`). Интерфейс рисуется с последней строки терминала (pushToBottom при старте, clearScreenToBottom при /clear, смене темы и ресайзе), поэтому поле ввода всегда внизу; альтернативный экран не используется, прокрутка терминала сохраняется. В неинтерактивном разовом или пайплайн-режиме (`bin/duddy.js`) события обрабатывает `src/plainRenderer.js` с прямым потоковым выводом в `process.stdout` без запуска React/Ink.
+Ядро агента полностью отделено от интерфейса: `runAgentTurn` в `src/agent.js` принимает сообщения и `toolCtx`, исполняет цикл взаимодействия с LLM и отправляет типизированные события (`onPhase`, `onModel`, `onText`, `onStepEnd`, `onToolStart`, `onToolResult`, `onWarning`, `onQueuedInjected`), а очередь сообщений забирает через `takeQueued`. В интерактивном режиме эти события принимает хук `src/ui/hooks/useAgentTurn.js`, а `src/ui/App.js` на базе Ink собирает из хуков экран: история, живой вывод, модальные оверлеи (Picker, Approval, SecretInput, BrowserLogin), поле ввода и строка статуса (до первого пользовательского сообщения баннер анимируется через `AnimatedBanner.js`; анимацию можно отключить переменной окружения `DUDDY_NO_ANIMATION=1`). Интерфейс рисуется с верха экрана (`startAtTop` при старте, `clearScreenToTop` при /clear, смене темы и ресайзе). Пока история помещается на экран, она рисуется в динамической области высотой в экран, и поле ввода со строкой статуса прижаты к низу; как только история с живым выводом перестаёт помещаться (замер `measureElement` в `App.js`), она переносится в Ink `Static` и дальше экран прокручивается как обычно; альтернативный экран не используется, прокрутка терминала сохраняется. В неинтерактивном разовом или пайплайн-режиме (`bin/duddy.js`) события обрабатывает `src/plainRenderer.js` с прямым потоковым выводом в `process.stdout` без запуска React/Ink.
 
 ### Структура директорий и файлов
 
@@ -65,7 +65,8 @@ duddy/
 │   │   ├── limits.js     # Счётчики по моделям, заголовки лимитов и отказы 429
 │   │   ├── probe.js      # Проверка доступности моделей минимальным запросом
 │   │   ├── status.js     # Хранение статусов, временных перегрузок и ошибок
-│   │   └── xai.js        # Загрузка и валидация моделей xAI (Grok)
+│   │   ├── xai.js        # Загрузка и валидация моделей xAI (Grok)
+│   │   └── ollama.js     # Загрузка моделей локальной Ollama (/api/tags, возможности tools/thinking/vision)
 │   ├── agent.js          # Исполнение агентного цикла (runAgentTurn, вызовы инструментов)
 │   ├── auth.js           # Авторизация (startBrowserLogin PKCE, openBrowser, generatePKCE)
 │   ├── banner.js         # Пиксель-арт котёнка и строки приветственного баннера (kittenLines, bannerLines, KITTEN_ROWS)
@@ -211,10 +212,10 @@ Duddy поддерживает выполнение операций с файл
 * Команды поддерживают быстрый выход по `Esc` без падения процесса.
 
 ### 5. Архитектура провайдеров AI (src/providers.js)
-* **Мультипровайдерность:** Duddy поддерживает OpenRouter, Google AI Studio напрямую через OpenAI-совместимый API (`v1beta/openai/`) и xAI напрямую через OpenAI-совместимый API (`https://api.x.ai/v1`). Модели xAI не проверяются пробингом, потому что это тратит кредиты.
+* **Мультипровайдерность:** Duddy поддерживает OpenRouter, Google AI Studio напрямую через OpenAI-совместимый API (`v1beta/openai/`) и xAI напрямую через OpenAI-совместимый API (`https://api.x.ai/v1`). Модели xAI не проверяются пробингом, потому что это тратит кредиты. Ollama (`local: true`) работает без ключа: `getProviderKey` возвращает заглушку, модели берутся из `/api/tags` с таймаутом 1,5 с, а если Ollama не запущена, группа просто не попадает в `/model`. Адрес сервера — `ollamaHost()` из `OLLAMA_HOST`. Моделям без capability `thinking` не отправляется `reasoning_effort` (Ollama отвечает на него 400), модели без `tools` помечаются недоступными (`notools`).
 * **Конфигурация:** В `PROVIDERS` описаны параметры каждого провайдера: `baseURL`, заголовки, поля ключа в конфиге (`apiKey`, `googleApiKey`, `xaiApiKey`) и переменные окружения (`OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `XAI_API_KEY`).
 * **Приоритет ключей:** `getProviderKey` сначала проверяет переменные окружения провайдера, затем поле в `config.json`.
-* **Автоопределение:** Функция `detectProviderForModel` определяет провайдера по названию модели (модели, начинающиеся с `gemini-` или `gemma-` без `/`, направляются в Google AI Studio; модели, начинающиеся с `grok-` без `/`, направляются в xAI; остальные — в OpenRouter).
+* **Автоопределение:** Функция `detectProviderForModel` определяет провайдера по названию модели (модели, начинающиеся с `gemini-` или `gemma-` без `/`, направляются в Google AI Studio; модели, начинающиеся с `grok-` без `/`, направляются в xAI; остальные — в OpenRouter). Модели Ollama по имени не отличить (`llama3.2:3b`, `user/model:tag`), поэтому `/model <id>` сначала ищет провайдера в каталоге (`findModel`).
 * **Смена провайдера:** При переключении модели или авторизации обновляются `session.provider`, `session.apiKey` и сохраняются в `config.json`.
 
 ### 6. Статусы моделей (src/models/status.js)

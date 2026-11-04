@@ -4,11 +4,16 @@ import { createClient } from './client.js';
 import { createThinkFilter } from './thinkFilter.js';
 import { createToolCallState, accumulateToolCallDelta } from './toolCalls.js';
 import { parseRateHeaders } from '../models/limits.js';
+import { findModel } from '../models/catalog.js';
 
 // Модель может молчать, пока думает или собирает большой вызов инструмента, поэтому лимит большой, а прервать можно вручную
 export const FIRST_CHUNK_TIMEOUT_MS = 600000;
 // Gemini отдаёт вызов инструмента одним чанком, поэтому после текста тишина бывает такой же долгой, как перед первым чанком
 export const STREAM_STALL_TIMEOUT_MS = FIRST_CHUNK_TIMEOUT_MS;
+
+// Модели, отказавшиеся от уровня рассуждений в этой сессии: ключ «провайдер:модель».
+// Следующие запросы идут без него, без лишнего запроса и повторного предупреждения.
+const effortUnsupported = new Set();
 
 /**
  * Формирует полезную нагрузку запроса к API модели
@@ -49,7 +54,10 @@ function buildRequestPayload({
       requestPayload.session_id = sessionId;
     }
   }
-  if (reasoningEffort && reasoningEffort !== 'auto') {
+  // Ollama отвечает 400 на reasoning_effort для моделей без рассуждений, а возможности модели известны заранее
+  const noThinking = (provider === 'ollama' && findModel(model)?.thinking === false) ||
+    effortUnsupported.has(`${provider}:${model}`);
+  if (reasoningEffort && reasoningEffort !== 'auto' && !noThinking) {
     if (provider === 'openrouter') {
       requestPayload.reasoning = { effort: reasoningEffort };
     } else {
@@ -139,9 +147,10 @@ function createTimeoutGuard({ signal, firstChunkTimeoutMs, stallTimeoutMs }) {
  * @param {object} guard - Сторож таймаутов
  * @param {string} reasoningEffort - Уровень рассуждений
  * @param {Function} [onWarning] - Колбэк для предупреждений
+ * @param {string} [provider] - Идентификатор провайдера (для запоминания отказа от уровня рассуждений)
  * @returns {Promise<{ stream: AsyncIterable<object>, rateLimits: object|null }>} Поток ответов модели и лимиты
  */
-async function openStream(client, payload, guard, reasoningEffort, onWarning) {
+async function openStream(client, payload, guard, reasoningEffort, onWarning, provider) {
   while (true) {
     try {
       const { data, response } = await client.chat.completions.create(payload, { signal: guard.signal }).withResponse();
@@ -155,13 +164,15 @@ async function openStream(client, payload, guard, reasoningEffort, onWarning) {
       }
 
       const msg = (err.message || '').toLowerCase();
-      const hasReasoning = msg.includes('thinking level') || msg.includes('reasoning');
+      // Ollama: «"llama3.2:3b" does not support thinking»
+      const hasReasoning = msg.includes('thinking') || msg.includes('reasoning');
       const hasEffortUnsupported = (hasReasoning && msg.includes('not supported')) ||
         ((err.status === 400 || err.statusCode === 400) && hasReasoning && msg.includes('support'));
 
       if ((payload.reasoning_effort || payload.reasoning) && hasEffortUnsupported) {
         delete payload.reasoning_effort;
         delete payload.reasoning;
+        effortUnsupported.add(`${provider}:${payload.model}`);
         if (typeof onWarning === 'function') {
           onWarning(`Модель не поддерживает уровень рассуждений «${reasoningEffort}» — запрос без него.`);
         }
@@ -369,7 +380,7 @@ export async function streamChatCompletion({
 
   let streamResult = null;
   try {
-    streamResult = await openStream(client, requestPayload, guard, reasoningEffort, onWarning);
+    streamResult = await openStream(client, requestPayload, guard, reasoningEffort, onWarning, provider);
     const stream = streamResult.stream;
 
     for await (const chunk of stream) {

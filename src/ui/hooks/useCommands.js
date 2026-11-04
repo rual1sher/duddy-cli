@@ -11,11 +11,11 @@ import {
   contextLines,
   helpLines
 } from '../../session-actions.js';
-import { listModels } from '../../models/catalog.js';
+import { listModels, findModel } from '../../models/catalog.js';
 import { UNAVAILABLE_REASONS } from '../../models/status.js';
 import { loadConfig, saveConfig } from '../../config.js';
-import { PROVIDERS, getProvider, detectProviderForModel, getProviderKey } from '../../providers.js';
-import { clearScreenToBottom } from './useResizeRedraw.js';
+import { getProvider, detectProviderForModel } from '../../providers.js';
+import { clearScreenToTop } from './useResizeRedraw.js';
 import { THEMES, THEME_IDS, getThemeId, setTheme } from '../../theme.js';
 import { ThemePreview } from '../ThemePreview.js';
 
@@ -84,7 +84,7 @@ function clearConversation({ session, queueRef, setQueued, toolCtxRef, setTransc
   session.lastRoutedModel = '';
   session.lastUsage = null;
   toolCtxRef.current.allowedCommands = new Set();
-  process.stdout.write(clearScreenToBottom());
+  process.stdout.write(clearScreenToTop());
   setTranscript([
     { type: 'banner' },
     { type: 'note', level: 'success', text: 'Новый диалог' }
@@ -168,7 +168,8 @@ function login(arg, { session, addNote, startGoogleLogin, startXaiLogin, startOp
  * Переключает модель по указанному идентификатору
  */
 async function changeModel(arg, ctx) {
-  const provId = detectProviderForModel(arg);
+  // Модели Ollama по имени не отличить от OpenRouter, поэтому сначала смотрим в каталог
+  const provId = findModel(arg)?.provider || detectProviderForModel(arg);
   await applyModelChoice(arg, provId, ctx);
 }
 
@@ -191,8 +192,8 @@ async function pickModel(ctx) {
     return;
   }
 
-  const cfg = loadConfig();
-  const connected = Object.keys(PROVIDERS).filter(id => getProviderKey(id, cfg));
+  // Группы по провайдерам, которые реально вернули модели (у Ollama ключа нет, есть только сервер)
+  const connected = [...new Set(models.map(m => m.provider))];
 
   const cur = models.find(m => m.id === session.model);
   const allModels = cur
@@ -267,7 +268,7 @@ export function openThemePicker(ctx, { onDone } = {}) {
       setOverlay(null);
       setTheme(id);
       saveConfig({ theme: id });
-      process.stdout.write(clearScreenToBottom());
+      process.stdout.write(clearScreenToTop());
       setStaticKey(k => k + 1);
       addNote('success', `Тема: ${THEMES[id].title}`);
       onDone?.();

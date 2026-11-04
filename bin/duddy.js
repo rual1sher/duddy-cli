@@ -47,7 +47,7 @@ ${chalk.bold("Options:")}
   ${paint('warning')("-v, --version")} Show version
 
 ${chalk.bold("Interactive Commands:")}
-  ${paint('warning')("/model")}   Список моделей ваших провайдеров с поиском
+  ${paint('warning')("/model")}   Список моделей ваших провайдеров с поиском (включая локальную Ollama)
   ${paint('warning')("/effort")}  Set reasoning level (auto, low, medium, high)
   ${paint('warning')("/theme")}   Выбрать цветовую тему
   ${paint('warning')("/login")}   Login: OpenRouter, Google AI Studio or xAI

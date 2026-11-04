@@ -64,6 +64,25 @@ export function errorHint(err, session) {
     return 'Повторите запрос, разбейте задачу на части или выберите другую модель через /model';
   }
 
+  if (session?.provider === 'ollama') {
+    const causeCode = err.cause?.code || err.cause?.cause?.code || '';
+    if (
+      code === 'ECONNREFUSED' ||
+      causeCode === 'ECONNREFUSED' ||
+      msg.includes('connection error') ||
+      msg.includes('fetch failed') ||
+      msg.includes('econnrefused')
+    ) {
+      return 'Ollama не отвечает — запустите её (ollama serve) или выберите другую модель через /model';
+    }
+    if (msg.includes('does not support tools')) {
+      return 'Эта модель Ollama не умеет вызывать инструменты — выберите другую через /model';
+    }
+    if (status === 404 || msg.includes('not found')) {
+      return 'Модели нет в Ollama — скачайте её (ollama pull <модель>) или выберите другую через /model';
+    }
+  }
+
   if (
     status === 503 ||
     msg.includes('503') ||
