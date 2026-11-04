@@ -68,9 +68,14 @@ function renderTranscriptItem(item, index, session) {
           h(
             Box,
             { key: i, flexDirection: 'row' },
-            i === 0
-              ? h(Text, { color: t.accent }, '⏺ ')
-              : h(Text, null, '  '),
+            // Предотвращаем сжатие префикса Ink при строках на всю ширину терминала
+            h(
+              Box,
+              { flexShrink: 0 },
+              i === 0
+                ? h(Text, { color: t.accent }, '⏺ ')
+                : h(Text, null, '  ')
+            ),
             h(Text, null, line)
           )
         )
@@ -262,18 +267,31 @@ function renderTranscriptItem(item, index, session) {
  * @param {Array<object>} props.items - Элементы истории
  * @param {object} props.session - Текущая сессия Duddy
  * @param {number} props.staticKey - Ключ для сброса и полной перерисовки
+ * @param {boolean} props.flushed - История перестала помещаться на экран и печатается через Static
  * @returns {React.ReactElement}
  */
-export function Transcript({ items, session, staticKey }) {
+export function Transcript({ items, session, staticKey, flushed }) {
   // Static печатается один раз, поэтому живой баннер рисуется в динамической
   // области до первого сообщения, затем уходит в Static финальным кадром.
   if (items.length === 1 && items[0].type === 'banner') {
     return h(AnimatedBanner, { session });
   }
 
+  // Пока история помещается на экран, она рисуется в динамической области сверху,
+  // чтобы поле ввода оставалось прижатым к низу.
+  if (!flushed) {
+    return h(
+      Box,
+      { flexDirection: 'column', flexShrink: 0 },
+      items.map((item, index) => renderTranscriptItem(item, index, session))
+    );
+  }
+
+  // Static в Ink позиционируется абсолютно без явной ширины; задаём 100%,
+  // чтобы строки истории ограничивались шириной терминала и не вылезали за край.
   return h(
     Static,
-    { key: staticKey, items },
+    { key: staticKey, items, style: { width: '100%' } },
     (item, index) => renderTranscriptItem(item, index, session)
   );
 }

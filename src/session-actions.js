@@ -209,7 +209,8 @@ function getTimeUntilMidnightUTC() {
 export const LIMIT_HINTS = {
   openrouter: 'лимита на модель нет: бесплатные делят общий лимит, платные списывают баланс',
   google: 'лимиты видны только в AI Studio, здесь они появятся после отказа 429',
-  xai: 'лимиты видны только в xAI Console, здесь они появятся, если провайдер пришлёт их в ответе'
+  xai: 'лимиты видны только в xAI Console, здесь они появятся, если провайдер пришлёт их в ответе',
+  ollama: 'локальные модели, лимитов нет'
 };
 
 /**
@@ -458,6 +459,10 @@ export async function usageLines(session) {
 
   // Блок 2: Остальные модели
   function isConnected(id) {
+    // У Ollama ключа нет: она «подключена», только если вернула модели
+    if (getProvider(id).local) {
+      return id === session.provider || (Array.isArray(catalogCache[id]) && catalogCache[id].length > 0);
+    }
     return Boolean(getProviderKey(id, config) || (id === session.provider && session.apiKey));
   }
 

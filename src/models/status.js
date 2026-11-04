@@ -21,7 +21,8 @@ export const UNAVAILABLE_REASONS = {
   region: 'недоступна в вашем регионе',
   retired: 'отключена провайдером',
   policy: 'запрещена настройками приватности OpenRouter',
-  restricted: 'доступ ограничен провайдером'
+  restricted: 'доступ ограничен провайдером',
+  notools: 'не поддерживает инструменты (tools)'
 };
 
 let onModelUnavailable = null;

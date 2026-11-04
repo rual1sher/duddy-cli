@@ -1,5 +1,5 @@
 /**
- * @fileoverview Провайдеры AI для Duddy CLI (OpenRouter, Google AI Studio и xAI)
+ * @fileoverview Провайдеры AI для Duddy CLI (OpenRouter, Google AI Studio, xAI и локальная Ollama)
  */
 
 /**
@@ -12,7 +12,41 @@
  * @property {string[]} envVars - Переменные окружения для поиска ключа
  * @property {string} keyUrl - Ссылка на страницу получения ключа
  * @property {string} defaultModel - Модель по умолчанию
+ * @property {boolean} [local] - Локальный провайдер без ключа (Ollama)
  */
+
+const OLLAMA_DEFAULT_PORT = '11434';
+
+/**
+ * Адрес сервера Ollama из OLLAMA_HOST с нормализацией, как в самой Ollama:
+ * схема по умолчанию http, 0.0.0.0 заменяется на 127.0.0.1, без схемы порт 11434.
+ *
+ * @param {string} [raw=process.env.OLLAMA_HOST] - Значение OLLAMA_HOST
+ * @returns {string} Адрес вида http://127.0.0.1:11434 без завершающего слеша
+ */
+export function ollamaHost(raw = process.env.OLLAMA_HOST) {
+  const value = String(raw || '').trim();
+  if (!value) {
+    return `http://localhost:${OLLAMA_DEFAULT_PORT}`;
+  }
+  try {
+    // С явной схемой Ollama берёт её стандартный порт, без схемы — 11434
+    const hasScheme = /^[a-z]+:\/\//i.test(value);
+    const url = new URL(hasScheme ? value : `http://${value}`);
+    if (url.hostname === '0.0.0.0') {
+      url.hostname = '127.0.0.1';
+    }
+    if (!hasScheme && !url.port) {
+      url.port = OLLAMA_DEFAULT_PORT;
+    }
+    return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, '');
+  } catch {
+    return `http://localhost:${OLLAMA_DEFAULT_PORT}`;
+  }
+}
+
+// OpenAI SDK требует непустой ключ, Ollama его не проверяет
+const LOCAL_PROVIDER_KEY = 'ollama';
 
 export const PROVIDERS = {
   openrouter: {
@@ -47,6 +81,17 @@ export const PROVIDERS = {
     envVars: ['XAI_API_KEY'],
     keyUrl: 'https://console.x.ai',
     defaultModel: 'grok-4.7'
+  },
+  ollama: {
+    id: 'ollama',
+    title: 'Ollama',
+    baseURL: `${ollamaHost()}/v1/`,
+    headers: {},
+    keyField: '',
+    envVars: [],
+    keyUrl: 'https://ollama.com/download',
+    defaultModel: '',
+    local: true
   }
 };
 
@@ -63,7 +108,8 @@ export function getProvider(id) {
 
 /**
  * Получить API-ключ провайдера: сначала проверяются переменные окружения,
- * затем соответствующее поле в объекте конфигурации.
+ * затем соответствующее поле в объекте конфигурации. Локальному провайдеру
+ * ключ не нужен, для него возвращается заглушка.
  *
  * @param {string} providerId - Идентификатор провайдера
  * @param {object} [config={}] - Объект конфигурации пользователя
@@ -71,6 +117,9 @@ export function getProvider(id) {
  */
 export function getProviderKey(providerId, config = {}) {
   const provider = getProvider(providerId);
+  if (provider.local) {
+    return LOCAL_PROVIDER_KEY;
+  }
   for (const envVar of provider.envVars) {
     if (process.env[envVar]) {
       return process.env[envVar];
@@ -83,7 +132,8 @@ export function getProviderKey(providerId, config = {}) {
  * Автоматически определить провайдера по ID модели.
  * Возвращает 'google', если id начинается с 'gemini-' или 'gemma-' и не содержит '/',
  * 'xai', если id начинается с 'grok-' и не содержит '/',
- * иначе возвращает 'openrouter'.
+ * иначе возвращает 'openrouter'. Модели Ollama по имени не определить
+ * (id вида llama3.2:3b или user/model:tag), их провайдер берётся из каталога.
  *
  * @param {string} modelId - Идентификатор модели
  * @returns {'google' | 'xai' | 'openrouter'}

@@ -1,5 +1,7 @@
 /** @fileoverview Получение информации о ключе API и лимитах контекста моделей */
 
+import { ollamaHost } from '../providers.js';
+
 /**
  * Получить актуальную информацию о ключе и доступных лимитах/остатке
  *
@@ -28,6 +30,7 @@ export async function fetchKeyInfo(apiKey, provider = 'openrouter') {
 
 const googleContextCache = {};
 const xaiContextCache = {};
+const ollamaContextCache = {};
 let modelsContextCache = null;
 
 /**
@@ -62,6 +65,31 @@ export async function getModelContextLength(modelId = '', provider = 'openrouter
       } catch {}
     }
     return 1000000;
+  }
+
+  if (provider === 'ollama') {
+    if (ollamaContextCache[modelId]) {
+      return ollamaContextCache[modelId];
+    }
+    try {
+      const res = await fetch(`${ollamaHost()}/api/show`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: modelId }),
+        signal: AbortSignal.timeout(2000)
+      });
+      if (res.ok) {
+        const json = await res.json();
+        // Ключ зависит от архитектуры модели: llama.context_length, qwen2.context_length и т.п.
+        const entry = Object.entries(json?.model_info || {})
+          .find(([k, v]) => k.endsWith('.context_length') && typeof v === 'number');
+        if (entry) {
+          ollamaContextCache[modelId] = entry[1];
+          return entry[1];
+        }
+      }
+    } catch {}
+    return 8192;
   }
 
   if (provider === 'xai') {

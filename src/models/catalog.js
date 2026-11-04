@@ -18,6 +18,7 @@ import {
 import { fetchGoogleModels } from './google.js';
 import { fetchOpenRouterModels } from './openrouter.js';
 import { fetchXaiModels } from './xai.js';
+import { fetchOllamaModels } from './ollama.js';
 
 /**
  * Кэш каталога моделей в памяти модуля
@@ -101,6 +102,9 @@ async function loadProviderModels(provider, keys) {
     }
   } else if (provider === 'xai') {
     models = await fetchXaiModels(key);
+  } else if (provider === 'ollama') {
+    // Без запущенной Ollama запрос падает, и группа просто не попадает в список
+    models = await fetchOllamaModels();
   }
 
   if (probe && needsProbe(provider)) {
@@ -113,7 +117,7 @@ async function loadProviderModels(provider, keys) {
       const storedReason = getUnavailableReason(provider, m.id);
       const unavailable = storedReason === 'retired'
         ? 'retired'
-        : (provider === 'openrouter' && freeOnlyKey && !m.free ? 'plan' : storedReason);
+        : (provider === 'openrouter' && freeOnlyKey && !m.free ? 'plan' : (storedReason || m.unavailable || null));
       return {
         ...m,
         unavailable
