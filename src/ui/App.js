@@ -9,6 +9,7 @@ import { StatusBar } from './StatusBar.js';
 import { InputBox } from './InputBox.js';
 import { LiveOutput } from './LiveOutput.js';
 import { Overlay } from './Overlay.js';
+import { WorkingIndicator } from './WorkingIndicator.js';
 import { useLiveOutput } from './hooks/useLiveOutput.js';
 import { useToolContext } from './hooks/useToolContext.js';
 import { useLoginFlows } from './hooks/useLoginFlows.js';
@@ -223,6 +224,13 @@ export function App({ session }) {
         { ref: contentInnerRef, flexDirection: 'column', flexShrink: 0 },
         h(Transcript, { items: transcript, session, staticKey, flushed }),
         h(LiveOutput, { liveTools, liveText }),
+        h(WorkingIndicator, {
+          status,
+          phase,
+          startedAt,
+          getLastActivity: () => lastActivityRef.current,
+          waitingForUser: overlay?.kind === 'approval'
+        }),
         h(Overlay, { overlay })
       )
     ),
@@ -241,9 +249,6 @@ export function App({ session }) {
       h(StatusBar, {
         status,
         session,
-        phase,
-        startedAt,
-        getLastActivity: () => lastActivityRef.current,
         queuedCount: queued.length,
         waitingForUser: overlay?.kind === 'approval',
         mode
