@@ -189,19 +189,7 @@ duddy                   # и выбрать её через /model, группа
 - ошибка `exceeds the available context size`;
 - модель забывает, о чём шла речь, или перестаёт пользоваться инструментами.
 
-**Как увеличить.** Выберите один вариант:
-
-```bash
-# 1. Разово — пока открыт этот терминал
-OLLAMA_CONTEXT_LENGTH=32768 ollama serve
-
-# 2. Навсегда — если Ollama запущена как служба (обычно так и есть)
-sudo systemctl edit ollama
-#   впишите в открывшийся файл:
-#   [Service]
-#   Environment="OLLAMA_CONTEXT_LENGTH=32768"
-sudo systemctl restart ollama
-```
+**Как увеличить.** Задайте для Ollama настройку `OLLAMA_CONTEXT_LENGTH` с нужным размером (например, `16384`) и перезапустите Ollama. Как это сделать на вашей системе, написано в официальной инструкции Ollama: [How can I specify the context window size?](https://docs.ollama.com/faq#how-can-i-specify-the-context-window-size). Сам Duddy эту настройку не меняет.
 
 **Как проверить.** Задайте Duddy любой вопрос, затем выполните `ollama ps`. В колонке `CONTEXT` должно быть новое число:
 

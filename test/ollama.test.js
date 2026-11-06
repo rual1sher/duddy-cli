@@ -103,10 +103,9 @@ test('errorHint подсказывает увеличить контекст Oll
     new Error('400 request (8017 tokens) exceeds the available context size (4096 tokens), try increasing it'),
     { status: 400 }
   );
-  assert.match(
-    errorHint(err, { provider: 'ollama', apiKey: 'ollama' }),
-    /OLLAMA_CONTEXT_LENGTH/
-  );
+  const hint = errorHint(err, { provider: 'ollama', apiKey: 'ollama' });
+  assert.match(hint, /OLLAMA_CONTEXT_LENGTH/);
+  assert.doesNotMatch(hint, /systemctl|ollama serve/);
 });
 
 test('fetchOllamaRuntimeContext возвращает context_length для совпавшей модели, null при отсутствии, другой модели или ошибке fetch', async () => {
@@ -150,7 +149,8 @@ test('fetchOllamaRuntimeContext возвращает context_length для со�
 test('ollamaContextWarning генерирует предупреждение при prompt_tokens >= 75% окна и null ниже', () => {
   const warn = ollamaContextWarning(4000, 4096);
   assert.match(warn, /Память модели почти заполнена: запрос занял 4000 из 4096 токенов/);
-  assert.match(warn, /OLLAMA_CONTEXT_LENGTH=32768/);
+  assert.match(warn, /OLLAMA_CONTEXT_LENGTH/);
+  assert.doesNotMatch(warn, /systemctl|ollama serve/);
 
   // Ровно 75%: 4096 * 0.75 = 3072 -> предупреждение
   assert.ok(ollamaContextWarning(3072, 4096));
