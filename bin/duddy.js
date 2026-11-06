@@ -2,7 +2,7 @@
 
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
-import { loadConfig, getActiveApiKey, DEFAULT_SYSTEM_PROMPT } from "../src/config.js";
+import { loadConfig, getActiveApiKey, DEFAULT_SYSTEM_PROMPT, systemPromptFor } from "../src/config.js";
 import { getProvider } from "../src/providers.js";
 import { startTui } from "../src/ui/index.js";
 import { runAgentTurn } from "../src/agent.js";
@@ -75,6 +75,11 @@ ${chalk.bold("Interactive Commands:")}
     }
   }
 
+  const [fullContext, leanContext] = await Promise.all([
+    buildProjectContext(process.cwd()),
+    buildProjectContext(process.cwd(), { lean: true }),
+  ]);
+
   const session = {
     id: randomUUID(),
     provider,
@@ -85,7 +90,8 @@ ${chalk.bold("Interactive Commands:")}
       getProvider(provider).defaultModel,
     reasoningEffort: config.reasoningEffort || "auto",
     temperature: config.temperature ?? 0.4,
-    systemPrompt: DEFAULT_SYSTEM_PROMPT + (await buildProjectContext(process.cwd())),
+    systemPrompt: DEFAULT_SYSTEM_PROMPT + fullContext,
+    systemPromptLean: DEFAULT_SYSTEM_PROMPT + leanContext,
     messages: [],
     autoApprove,
   };
@@ -125,7 +131,7 @@ ${chalk.bold("Interactive Commands:")}
 
     const startTime = Date.now();
     const messagesToSend = [
-      { role: "system", content: session.systemPrompt },
+      { role: "system", content: systemPromptFor(session) },
       { role: "user", content: combinedContent },
     ];
 

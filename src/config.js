@@ -25,6 +25,7 @@ ANSWER FORMAT (pick silently from the request)
 
 FILE TOOLS
 - When the user asks to create, inspect, change or delete files, call the tools instead of only printing code.
+- You really have access to the project files and shell through these tools. Never say you can't read or change files: call the tool.
 - Use create_file for new files and full rewrites; use edit_file only for small patches after read_file, copying the exact lines.
 - Overwriting an existing file with create_file requires reading the whole file with read_file in the same turn, so prefer edit_file.
 - read_file returns up to 40000 characters per call. If the result says it was cut, continue with the given offset or start_line before relying on the rest of the file.
@@ -157,4 +158,16 @@ export function getApiKey() {
 export function getActiveApiKey(config) {
   const cfg = config || loadConfig();
   return getProviderKey(cfg.provider || 'openrouter', cfg);
+}
+
+/**
+ * Получить системный промпт для сессии с учётом провайдера (облегчённый для Ollama).
+ *
+ * @param {object} session
+ * @returns {string}
+ */
+export function systemPromptFor(session) {
+  return session?.provider === 'ollama' && session?.systemPromptLean
+    ? session.systemPromptLean
+    : session?.systemPrompt;
 }

@@ -67,3 +67,40 @@ export async function fetchOllamaModels() {
     .filter(Boolean)
     .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
 }
+
+/**
+ * Получить реальный размер контекста запущенной в Ollama модели из /api/ps.
+ * Возвращает context_length если это положительное число, иначе null. Никогда не выбрасывает исключений.
+ *
+ * @param {string} modelId - Имя или идентификатор модели
+ * @returns {Promise<number|null>}
+ */
+export async function fetchOllamaRuntimeContext(modelId) {
+  try {
+    const res = await fetch(`${ollamaHost()}/api/ps`, {
+      signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS)
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const raw = Array.isArray(json?.models) ? json.models : [];
+    const entry = raw.find(m => m?.name === modelId || m?.model === modelId);
+    const len = entry?.context_length;
+    return typeof len === 'number' && len > 0 ? len : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Формирует текст предупреждения о скором заполнении памяти модели,
+ * если токены запроса достигают или превышают 75% окна контекста Ollama.
+ *
+ * @param {number} promptTokens - Число токенов во входном запросе
+ * @param {number} runtimeCtx - Размер рабочего окна контекста модели
+ * @returns {string|null}
+ */
+export function ollamaContextWarning(promptTokens, runtimeCtx) {
+  if (typeof runtimeCtx !== 'number' || runtimeCtx <= 0) return null;
+  if (typeof promptTokens !== 'number' || promptTokens < runtimeCtx * 0.75) return null;
+  return `Память модели почти заполнена: запрос занял ${promptTokens} из ${runtimeCtx} токенов, следующие шаги могут не поместиться. Увеличьте окно: OLLAMA_CONTEXT_LENGTH=32768 ollama serve (или Environment="OLLAMA_CONTEXT_LENGTH=32768" через sudo systemctl edit ollama).`;
+}

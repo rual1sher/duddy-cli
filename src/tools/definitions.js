@@ -5,17 +5,17 @@ export const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'create_file',
-      description: 'Создать новый файл или полностью перезаписать существующий файл с указанным содержимым. Используйте для создания новых файлов или для полной перезаписи (когда меняется весь файл или большая его часть). Автоматически создает родительские папки. Файлы длиннее 40000 символов и файлы не в UTF-8 не перезаписывает: для них используйте edit_file.',
+      description: 'Create a file or fully overwrite an existing one. Creates parent folders. Will not overwrite files over 40000 chars or non-UTF-8 files: use edit_file for those.',
       parameters: {
         type: 'object',
         properties: {
           path: {
             type: 'string',
-            description: 'Имя и относительный путь к файлу (например: "index.html" или "src/utils.js"). Не передавайте имя папки или "."'
+            description: 'Relative file path, e.g. "index.html" or "src/utils.js". Not a folder or "."'
           },
           content: {
             type: 'string',
-            description: 'Полное содержимое файла'
+            description: 'Full file content'
           }
         },
         required: ['path', 'content']
@@ -26,13 +26,13 @@ export const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'create_folder',
-      description: 'Создать новую папку (директорию). Автоматически создает все недостающие родительские папки.',
+      description: 'Create a folder, including missing parent folders.',
       parameters: {
         type: 'object',
         properties: {
           path: {
             type: 'string',
-            description: 'Путь к папке, например: "src/components" или "assets/icons"'
+            description: 'Folder path, e.g. "src/components"'
           }
         },
         required: ['path']
@@ -43,25 +43,25 @@ export const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'read_file',
-      description: 'Прочитать текстовое содержимое существующего файла. Если нужна только часть, передайте start_line и max_lines: это намного дешевле. За один вызов возвращает до 40000 символов. Если файл длиннее, в конце результата указано, как продолжить.',
+      description: 'Read a text file. For part of a file pass start_line and max_lines: much cheaper. Returns up to 40000 chars per call; if the file is longer, the result says how to continue.',
       parameters: {
         type: 'object',
         properties: {
           path: {
             type: 'string',
-            description: 'Путь к файлу для чтения, например: "package.json"'
+            description: 'File path, e.g. "package.json"'
           },
           start_line: {
             type: 'integer',
-            description: 'С какой строки читать, считая с 1. Номера строк даёт инструмент grep.'
+            description: '1-based line to start from. grep gives line numbers.'
           },
           max_lines: {
             type: 'integer',
-            description: 'Сколько строк вернуть, по умолчанию 200, если указан start_line.'
+            description: 'Number of lines to return, default 200 when start_line is set.'
           },
           offset: {
             type: 'integer',
-            description: 'С какого символа читать, если результат подсказал offset. Нельзя совмещать со start_line.'
+            description: 'Character offset to continue from, when the result suggests it. Not combined with start_line.'
           }
         },
         required: ['path']
@@ -72,21 +72,21 @@ export const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'edit_file',
-      description: 'Точечно заменить небольшой фрагмент существующего текста в файле (old_content) на новый фрагмент (new_content). Для полной перезаписи всего файла используйте create_file.',
+      description: 'Replace a small exact fragment of a file (old_content) with new_content. For full rewrites use create_file.',
       parameters: {
         type: 'object',
         properties: {
           path: {
             type: 'string',
-            description: 'Имя и относительный путь к файлу (например: "index.html" или "src/utils.js")'
+            description: 'Relative file path, e.g. "src/utils.js"'
           },
           old_content: {
             type: 'string',
-            description: 'Точный непрерывный фрагмент существующего текста из файла, который нужно заменить. Для лучшего совпадения предварительно прочитайте файл через read_file.'
+            description: 'Exact contiguous text from the file to replace. Read the file with read_file first.'
           },
           new_content: {
             type: 'string',
-            description: 'Новый текст, который заменит old_content'
+            description: 'Replacement text'
           }
         },
         required: ['path', 'old_content', 'new_content']
@@ -97,13 +97,13 @@ export const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'delete_file',
-      description: 'Удалить файл из файловой системы.',
+      description: 'Delete a file.',
       parameters: {
         type: 'object',
         properties: {
           path: {
             type: 'string',
-            description: 'Путь к удаляемому файлу'
+            description: 'File path'
           }
         },
         required: ['path']
@@ -114,13 +114,13 @@ export const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'delete_folder',
-      description: 'Удалить папку (директорию) и всё её содержимое.',
+      description: 'Delete a folder and everything in it.',
       parameters: {
         type: 'object',
         properties: {
           path: {
             type: 'string',
-            description: 'Путь к удаляемой папке'
+            description: 'Folder path'
           }
         },
         required: ['path']
@@ -131,13 +131,13 @@ export const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'list_dir',
-      description: 'Получить список файлов и подпапок в указанной директории.',
+      description: 'List files and subfolders of a folder.',
       parameters: {
         type: 'object',
         properties: {
           path: {
             type: 'string',
-            description: 'Путь к директории (по умолчанию "." для текущей рабочей папки)'
+            description: 'Folder path, default "."'
           }
         }
       }
@@ -147,17 +147,17 @@ export const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'bash',
-      description: 'Выполнить команду bash в рабочей папке: тесты, сборка, линтер, git. Для чтения и поиска используйте read_file, grep и glob, они дешевле. Команда работает без терминала и ввода: интерактивные программы, серверы и наблюдатели запускать нельзя. Возвращает вывод и код выхода.',
+      description: 'Run a bash command in the project folder: tests, builds, linters, git. To read and search use read_file, grep and glob: they are cheaper. No terminal or input: no interactive programs, servers or watchers. Returns output and exit code.',
       parameters: {
         type: 'object',
         properties: {
           command: {
             type: 'string',
-            description: 'Текст команды, например "npm test"'
+            description: 'Command, e.g. "npm test"'
           },
           timeout_seconds: {
             type: 'number',
-            description: 'Лимит времени в секундах, по умолчанию 120, максимум 600'
+            description: 'Time limit in seconds, default 120, max 600'
           }
         },
         required: ['command']
@@ -168,29 +168,29 @@ export const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'grep',
-      description: 'Поиск по содержимому файлов. Использует регулярное выражение как в ripgrep, возвращает строки с номерами, это самый дешёвый способ найти код, скрытые файлы и .gitignore пропускаются. Шаблон строчными буквами ищется без учёта регистра.',
+      description: 'Search file contents with a ripgrep regex. Returns matching lines with line numbers: the cheapest way to find code. Skips hidden and .gitignore files. An all-lowercase pattern is case-insensitive.',
       parameters: {
         type: 'object',
         properties: {
           pattern: {
             type: 'string',
-            description: 'Регулярное выражение или текст для поиска'
+            description: 'Regex or text to find'
           },
           path: {
             type: 'string',
-            description: 'Папка или файл для поиска (по умолчанию "." для текущей рабочей папки)'
+            description: 'Folder or file to search, default "."'
           },
           glob: {
             type: 'string',
-            description: 'Glob-фильтр файлов, например "*.js" или "src/**/*.ts". Шаблон "src/*.js" не заходит в подпапки.'
+            description: 'File filter, e.g. "*.js" or "src/**/*.ts". "src/*.js" does not enter subfolders.'
           },
           case_insensitive: {
             type: 'boolean',
-            description: 'Искать без учёта регистра'
+            description: 'Ignore case'
           },
           literal: {
             type: 'boolean',
-            description: 'Искать шаблон как точный текст, а не регулярное выражение'
+            description: 'Treat pattern as plain text, not a regex'
           }
         },
         required: ['pattern']
@@ -201,17 +201,17 @@ export const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'glob',
-      description: 'Поиск файлов по glob-шаблону с учётом .gitignore.',
+      description: 'Find files by glob pattern, respecting .gitignore.',
       parameters: {
         type: 'object',
         properties: {
           pattern: {
             type: 'string',
-            description: 'Glob-шаблон для поиска файлов (например "src/**/*.js")'
+            description: 'Glob pattern, e.g. "src/**/*.js"'
           },
           path: {
             type: 'string',
-            description: 'Папка для поиска (по умолчанию "." для текущей рабочей папки)'
+            description: 'Folder to search, default "."'
           }
         },
         required: ['pattern']

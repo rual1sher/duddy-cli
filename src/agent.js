@@ -1,9 +1,11 @@
 import { streamChatCompletion } from './llm/stream.js';
+import { extractTextToolCalls } from './llm/toolCalls.js';
 import { AGENT_TOOLS } from './tools/definitions.js';
 import { executeTool } from './tools/execute.js';
 import { describeToolResult } from './toolDisplay.js';
 import { compactToolResults } from './llm/compact.js';
 import { toolsForMode } from './modes.js';
+import { fetchOllamaRuntimeContext, ollamaContextWarning } from './models/ollama.js';
 
 export const MAX_HISTORY_TURNS = 10;
 export const MAX_TOOL_TURNS = 10;
@@ -102,7 +104,16 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
       err.partialMessages = [...newMessages];
       throw err;
     }
-    const { content, toolCalls, usage } = streamResult;
+    let { content, toolCalls } = streamResult;
+    const { usage } = streamResult;
+
+    if (session?.provider === 'ollama' && (!toolCalls || toolCalls.length === 0) && content) {
+      const extracted = extractTextToolCalls(content, toolsForMode(AGENT_TOOLS, activeToolCtx.mode));
+      if (extracted.calls.length > 0) {
+        toolCalls = extracted.calls;
+        content = extracted.rest;
+      }
+    }
 
     if (usage) {
       lastUsage = usage;
@@ -120,6 +131,27 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
       }
       session.modelUsage[session.model].lastTokens = total;
       session.modelUsage[session.model].totalTokens += total;
+    }
+
+    if (session?.provider === 'ollama' && usage?.prompt_tokens) {
+      if (session.ollamaRuntimeContextModel !== session.model || session.ollamaRuntimeContext === undefined) {
+        session.ollamaRuntimeContext = await fetchOllamaRuntimeContext(session.model);
+        session.ollamaRuntimeContextModel = session.model;
+      }
+      const runtimeCtx = session.ollamaRuntimeContext;
+      if (typeof runtimeCtx === 'number') {
+        session.contextLength = runtimeCtx;
+        if (!session.ollamaContextWarned) {
+          session.ollamaContextWarned = new Set();
+        }
+        if (!session.ollamaContextWarned.has(session.model)) {
+          const warning = ollamaContextWarning(usage.prompt_tokens, runtimeCtx);
+          if (warning) {
+            session.ollamaContextWarned.add(session.model);
+            emit('onWarning', warning);
+          }
+        }
+      }
     }
 
     emit('onRequestDone', { usage, rateLimits: streamResult.rateLimits });

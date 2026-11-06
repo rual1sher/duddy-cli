@@ -18,7 +18,7 @@ after(() => {
   }
 });
 
-const { loadConfig, saveConfig } = await import('../src/config.js');
+const { loadConfig, saveConfig, DEFAULT_SYSTEM_PROMPT, systemPromptFor } = await import('../src/config.js');
 
 const CONFIG_DIR = path.join(tmpHome, '.config', 'duddy');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -180,4 +180,19 @@ test('saveConfig: сбой записи не портит прежний фай�
 
   assert.strictEqual(fs.readFileSync(CONFIG_FILE, 'utf8'), before);
   assert.deepStrictEqual(fs.readdirSync(CONFIG_DIR).filter(e => e.includes('.tmp-')), []);
+});
+
+test('DEFAULT_SYSTEM_PROMPT содержит напоминание о доступе к файлам', () => {
+  assert.ok(DEFAULT_SYSTEM_PROMPT.includes("You really have access to the project files and shell through these tools. Never say you can't read or change files: call the tool."));
+});
+
+test('systemPromptFor выбирает lean для ollama при наличии systemPromptLean и full для остальных', () => {
+  const ollamaLean = { provider: 'ollama', systemPrompt: 'full', systemPromptLean: 'lean' };
+  assert.equal(systemPromptFor(ollamaLean), 'lean');
+
+  const ollamaNoLean = { provider: 'ollama', systemPrompt: 'full' };
+  assert.equal(systemPromptFor(ollamaNoLean), 'full');
+
+  const openrouter = { provider: 'openrouter', systemPrompt: 'full', systemPromptLean: 'lean' };
+  assert.equal(systemPromptFor(openrouter), 'full');
 });

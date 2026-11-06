@@ -1,9 +1,10 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { ollamaHost, getProviderKey, PROVIDERS } from '../src/providers.js';
-import { fetchOllamaModels } from '../src/models/ollama.js';
+import { fetchOllamaModels, fetchOllamaRuntimeContext, ollamaContextWarning } from '../src/models/ollama.js';
 import { getModelContextLength } from '../src/llm/modelInfo.js';
 import { errorHint } from '../src/errors.js';
+import { runAgentTurn } from '../src/agent.js';
 
 const originalFetch = globalThis.fetch;
 
@@ -95,4 +96,143 @@ test('errorHint подсказывает запустить Ollama при отк
     cause: { code: 'ECONNREFUSED' }
   });
   assert.match(errorHint(err, { provider: 'ollama', apiKey: 'ollama' }), /ollama serve/);
+});
+
+test('errorHint подсказывает увеличить контекст Ollama при превышении окна', () => {
+  const err = Object.assign(
+    new Error('400 request (8017 tokens) exceeds the available context size (4096 tokens), try increasing it'),
+    { status: 400 }
+  );
+  assert.match(
+    errorHint(err, { provider: 'ollama', apiKey: 'ollama' }),
+    /OLLAMA_CONTEXT_LENGTH/
+  );
+});
+
+test('fetchOllamaRuntimeContext возвращает context_length для совпавшей модели, null при отсутствии, другой модели или ошибке fetch', async () => {
+  globalThis.fetch = async (url) => {
+    assert.ok(String(url).endsWith('/api/ps'));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        models: [
+          { name: 'llama3:8b', context_length: 4096 },
+          { model: 'qwen2.5:7b', context_length: 32768 },
+          { name: 'broken:1b', context_length: 0 },
+          { name: 'neg:1b', context_length: -100 }
+        ]
+      })
+    };
+  };
+
+  assert.equal(await fetchOllamaRuntimeContext('llama3:8b'), 4096);
+  assert.equal(await fetchOllamaRuntimeContext('qwen2.5:7b'), 32768);
+  assert.equal(await fetchOllamaRuntimeContext('missing:7b'), null);
+  assert.equal(await fetchOllamaRuntimeContext('broken:1b'), null);
+  assert.equal(await fetchOllamaRuntimeContext('neg:1b'), null);
+
+  // Ошибка ответа сервера (!res.ok) -> null
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 500,
+    json: async () => ({})
+  });
+  assert.equal(await fetchOllamaRuntimeContext('llama3:8b'), null);
+
+  // Исключение fetch -> null (never throw)
+  globalThis.fetch = async () => {
+    throw new Error('network down');
+  };
+  assert.equal(await fetchOllamaRuntimeContext('llama3:8b'), null);
+});
+
+test('ollamaContextWarning генерирует предупреждение при prompt_tokens >= 75% окна и null ниже', () => {
+  const warn = ollamaContextWarning(4000, 4096);
+  assert.match(warn, /Память модели почти заполнена: запрос занял 4000 из 4096 токенов/);
+  assert.match(warn, /OLLAMA_CONTEXT_LENGTH=32768/);
+
+  // Ровно 75%: 4096 * 0.75 = 3072 -> предупреждение
+  assert.ok(ollamaContextWarning(3072, 4096));
+  // 3071 < 3072 -> null
+  assert.equal(ollamaContextWarning(3071, 4096), null);
+  assert.equal(ollamaContextWarning(1000, 4096), null);
+  assert.equal(ollamaContextWarning(null, 4096), null);
+  assert.equal(ollamaContextWarning(4000, null), null);
+  assert.equal(ollamaContextWarning(4000, 0), null);
+});
+
+test('runAgentTurn: предупреждение о заполнении контекста Ollama и кэширование /api/ps', async () => {
+  const encoder = new TextEncoder();
+  let psCallCount = 0;
+  const warnings = [];
+
+  globalThis.fetch = async (url) => {
+    const urlStr = String(url);
+    if (urlStr.endsWith('/api/ps')) {
+      psCallCount++;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          models: [
+            { name: 'test-ollama-model', context_length: 4096 }
+          ]
+        })
+      };
+    }
+
+    if (urlStr.includes('/chat/completions')) {
+      const stream = new ReadableStream({
+        start(ctrl) {
+          const chunk = {
+            choices: [{ delta: { content: 'Привет!' } }],
+            usage: { prompt_tokens: 3950, completion_tokens: 5, total_tokens: 3955 }
+          };
+          ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+          ctrl.enqueue(encoder.encode('data: [DONE]\n\n'));
+          ctrl.close();
+        }
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' }
+      });
+    }
+
+    throw new Error(`Unexpected fetch to ${urlStr}`);
+  };
+
+  const session = {
+    provider: 'ollama',
+    apiKey: 'ollama',
+    model: 'test-ollama-model',
+    messages: []
+  };
+
+  // Шаг 1: prompt_tokens (3950) >= 4096 * 0.75 (3072) -> предупреждение выдано, contextLength установлен
+  await runAgentTurn({
+    session,
+    messages: [{ role: 'user', content: 'hello' }],
+    events: {
+      onWarning: (w) => warnings.push(w)
+    }
+  });
+
+  assert.equal(session.contextLength, 4096);
+  assert.equal(psCallCount, 1);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /Память модели почти заполнена/);
+
+  // Шаг 2: тот же запрос с той же моделью -> повторного запроса к /api/ps и повторного предупреждения нет
+  await runAgentTurn({
+    session,
+    messages: [{ role: 'user', content: 'again' }],
+    events: {
+      onWarning: (w) => warnings.push(w)
+    }
+  });
+
+  assert.equal(psCallCount, 1, 'Повторный вызов /api/ps не должен выполняться для той же модели');
+  assert.equal(warnings.length, 1, 'Предупреждение не должно повторяться для той же модели в сессии');
 });

@@ -56,6 +56,7 @@ export async function selectModel(session, modelId, providerId) {
   session.apiKey = key;
   session.model = modelId;
   session.lastRoutedModel = '';
+  session.ollamaRuntimeContext = undefined;
 
   const currentModels = config.models || {};
   saveConfig({
@@ -138,6 +139,7 @@ async function connectWithKey(session, providerId, key, validate) {
   session.apiKey = key;
   session.model = targetModel;
   session.lastRoutedModel = '';
+  session.ollamaRuntimeContext = undefined;
 
   saveConfig({
     [provider.keyField]: key,

@@ -78,6 +78,9 @@ export function errorHint(err, session) {
     if (msg.includes('does not support tools')) {
       return 'Эта модель Ollama не умеет вызывать инструменты — выберите другую через /model';
     }
+    if (msg.includes('exceeds the available context size')) {
+      return 'Запрос не помещается в память модели. Увеличьте окно Ollama: OLLAMA_CONTEXT_LENGTH=32768 ollama serve (или Environment="OLLAMA_CONTEXT_LENGTH=32768" через sudo systemctl edit ollama), либо начните заново через /clear';
+    }
     if (status === 404 || msg.includes('not found')) {
       return 'Модели нет в Ollama — скачайте её (ollama pull <модель>) или выберите другую через /model';
     }

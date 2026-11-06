@@ -337,3 +337,32 @@ test('карта проекта работает и без файлов', async 
   assert.ok(text.includes('PROJECT CONTEXT'));
   assert.ok(!text.includes('Files ('));
 });
+
+test('buildProjectContext(dir, { lean: true }) ограничивает пути до 40 и обрезает AGENTS.md до 2000 символов', async () => {
+  const leanDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'duddy-lean-test-')));
+  try {
+    for (let i = 0; i < 50; i++) {
+      const sub = path.join(leanDir, `dir_${i % 5}`);
+      await fs.mkdir(sub, { recursive: true });
+      await fs.writeFile(path.join(sub, `file_${i}.txt`), 'content', 'utf8');
+    }
+    const longNotes = 'a'.repeat(3500);
+    await fs.writeFile(path.join(leanDir, 'AGENTS.md'), longNotes, 'utf8');
+
+    const fullCtx = await buildProjectContext(leanDir, { lean: false });
+    assert.ok(fullCtx.includes(longNotes), 'В полном режиме 3500 символов не обрезаются');
+
+    const leanCtx = await buildProjectContext(leanDir, { lean: true });
+    assert.ok(leanCtx.includes('Large project, files per folder:'));
+    const filesSection = leanCtx.split('Files (respecting .gitignore):\n')[1]?.split('\n\n')[0] || '';
+    const fileLines = filesSection.split('\n').filter(Boolean);
+    assert.ok(fileLines.length <= 41, `Строк в секции файлов: ${fileLines.length}`);
+
+    assert.ok(leanCtx.includes('...[Обрезано, полный файл: AGENTS.md]...'));
+    const notesMatch = leanCtx.match(/<project_notes>\n([\s\S]*?)\n\.\.\.\[Обрезано/);
+    assert.ok(notesMatch, 'Секция project_notes должна содержать обрезку');
+    assert.equal(notesMatch[1].length, 2000, 'Длина обрезанных инструкций должна быть ровно 2000 символов');
+  } finally {
+    await fs.rm(leanDir, { recursive: true, force: true });
+  }
+});

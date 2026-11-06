@@ -66,6 +66,6 @@ export function toolsForMode(tools, mode) {
  * Системная инструкция для режима планирования (plan)
  */
 export const PLAN_MODE_PROMPT =
-  'Включён режим планирования (только чтение). Тебе запрещено изменять файлы и выполнять любые команды bash, кроме безопасных только для чтения. ' +
-  'Изучи кодовую базу с помощью инструментов чтения и поиска, затем предоставь пошаговый план изменений: какие файлы затронуты, что именно в них меняется и какие есть потенциальные риски. ' +
-  'Не пытайся обойти ограничения через bash. Пользователь сам переключит режим (Shift+Tab), когда предложенный план его устроит.';
+  'Plan mode (read-only) is on. Do not change files or run bash commands other than safe read-only ones, and do not try to bypass this through bash. ' +
+  'Explore the code with the read and search tools, then give a step-by-step plan: which files change, what exactly changes in each, and the risks. ' +
+  'The user will switch the mode (Shift+Tab) when the plan is approved.';
