@@ -58,29 +58,42 @@ export function recordAudio(destWavPath, { maxDurationMs = 15000 } = {}) {
       }
     }
 
+    let resolved = false;
     let timer = null;
     const recorder = spawn(cmd, args, { stdio: 'ignore' });
     activeRecorder = recorder;
 
-    const finish = () => {
+    const finish = (proc) => {
       if (timer) clearTimeout(timer);
-      activeRecorder = null;
+      if (activeRecorder === proc) activeRecorder = null;
+      if (resolved) return;
+      resolved = true;
       resolve(fs.existsSync(destWavPath) && fs.statSync(destWavPath).size > 100);
     };
 
-    recorder.on('close', finish);
+    // При ошибке запуска Node шлёт 'error', а затем ещё и 'close' — его пропускаем,
+    // иначе запись завершится раньше, чем начнёт работать запасной arecord
+    let spawnFailed = false;
+    recorder.on('close', () => {
+      if (!spawnFailed) finish(recorder);
+    });
     recorder.on('error', () => {
+      spawnFailed = true;
+      if (activeRecorder === recorder) activeRecorder = null;
       // Если pw-record упал, пробуем arecord
       if (cmd === 'pw-record') {
         const fallback = spawn('arecord', ['-q', '-f', 'S16_LE', '-r', '16000', '-c', '1', destWavPath], { stdio: 'ignore' });
         activeRecorder = fallback;
-        fallback.on('close', finish);
+        fallback.on('close', () => finish(fallback));
         fallback.on('error', () => {
-          activeRecorder = null;
+          if (activeRecorder === fallback) activeRecorder = null;
+          if (resolved) return;
+          resolved = true;
           resolve(false);
         });
       } else {
-        activeRecorder = null;
+        if (resolved) return;
+        resolved = true;
         resolve(false);
       }
     });

@@ -20,7 +20,7 @@ import { listModels, findModel } from '../models/catalog.js';
 import { loadConfig } from '../config.js';
 import { fetchKeyInfo, getModelContextLength } from '../llm/modelInfo.js';
 import { nextMode } from '../modes.js';
-import { isSpeaking, stopSpeech } from '../voice/index.js';
+import { isSpeaking, stopSpeech, isVoiceAvailable } from '../voice/index.js';
 
 const h = React.createElement;
 
@@ -82,6 +82,9 @@ export function App({ session }) {
 
   // Фоновая загрузка метаданных при старте
   useEffect(() => {
+    if (session.autoSpeak && !isVoiceAvailable()) {
+      addNote('warn', 'Авто-озвучка включена, но голос не установлен — выполните /voice install');
+    }
     if (!loadConfig().theme) {
       openThemePicker(
         { setOverlay, setStaticKey, addNote },
@@ -180,6 +183,11 @@ export function App({ session }) {
   useInput((input, key) => {
     if (isSpeaking() && (key.escape || (key.ctrl && input === 's'))) {
       stopSpeech();
+      return;
+    }
+
+    if (key.escape && overlay?.kind === 'recording') {
+      overlay.onCancel?.();
       return;
     }
 

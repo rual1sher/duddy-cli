@@ -36,6 +36,7 @@ export function isVoiceAvailable() {
     fs.existsSync(p.piperBin) &&
     fs.existsSync(p.whisperBin) &&
     fs.existsSync(p.piperModel) &&
+    fs.existsSync(p.piperConfig) &&
     fs.existsSync(p.whisperModel)
   );
 }
@@ -47,6 +48,7 @@ export function getVoiceStatus() {
     piper: fs.existsSync(p.piperBin),
     whisper: fs.existsSync(p.whisperBin),
     piperModel: fs.existsSync(p.piperModel),
+    piperConfig: fs.existsSync(p.piperConfig),
     whisperModel: fs.existsSync(p.whisperModel),
     paths: p
   };

@@ -68,13 +68,13 @@ export async function speak(rawText) {
     piper.stdin.end();
 
     piper.on('error', () => {
-      activePiper = null;
+      if (activePiper === piper) activePiper = null;
       cleanup(tempWav);
       resolve(false);
     });
 
     piper.on('close', (code) => {
-      activePiper = null;
+      if (activePiper === piper) activePiper = null;
       if (code !== 0 || !fs.existsSync(tempWav)) {
         cleanup(tempWav);
         resolve(false);
@@ -117,22 +117,30 @@ function playAudioFile(wavPath) {
     const player = spawn(cmd, args, { stdio: 'ignore' });
     activePlayer = player;
 
+    // После 'error' при запуске приходит ещё и 'close' — его пропускаем,
+    // чтобы не считать речь законченной, пока играет запасной aplay
+    let spawnFailed = false;
     player.on('close', () => {
-      activePlayer = null;
+      if (spawnFailed) return;
+      if (activePlayer === player) activePlayer = null;
       resolve();
     });
 
     player.on('error', (err) => {
-      activePlayer = null;
+      spawnFailed = true;
+      if (activePlayer === player) activePlayer = null;
       // Если pw-play не сработал на Linux, пробуем aplay
       if (cmd === 'pw-play') {
         const fallback = spawn('aplay', ['-q', wavPath], { stdio: 'ignore' });
         activePlayer = fallback;
         fallback.on('close', () => {
-          activePlayer = null;
+          if (activePlayer === fallback) activePlayer = null;
           resolve();
         });
-        fallback.on('error', reject);
+        fallback.on('error', (fallbackErr) => {
+          if (activePlayer === fallback) activePlayer = null;
+          reject(fallbackErr);
+        });
       } else {
         reject(err);
       }

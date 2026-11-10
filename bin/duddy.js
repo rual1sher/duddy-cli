@@ -12,6 +12,7 @@ import { formatDuration, formatTurnUsage } from "../src/formatter.js";
 import { buildProjectContext } from "../src/projectContext.js";
 import chalk from "chalk";
 import { setTheme, paint } from "../src/theme.js";
+import { isVoiceAvailable, speak } from "../src/voice/index.js";
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -151,7 +152,7 @@ ${chalk.bold("Interactive Commands:")}
     process.on("SIGINT", onSigint);
 
     try {
-      const { turnUsage, elapsedMs } = await runAgentTurn({
+      const { turnUsage, elapsedMs, finalText } = await runAgentTurn({
         session,
         messages: messagesToSend,
         toolCtx,
@@ -167,6 +168,14 @@ ${chalk.bold("Interactive Commands:")}
           paint('success')("✔ Готово") +
           paint('subtle')(` · ${durationStr}${tokenInfo}\n`),
       );
+
+      if (session.autoSpeak) {
+        if (isVoiceAvailable()) {
+          await speak(finalText);
+        } else {
+          console.error(paint('warning')('Голос не установлен — запустите duddy и выполните /voice install'));
+        }
+      }
     } catch (err) {
       if (controller.signal.aborted || err?.name === "AbortError") {
         console.error(paint('warning')("\nОстановлено"));
