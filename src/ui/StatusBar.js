@@ -68,6 +68,9 @@ export function StatusBar({ status, session, queuedCount = 0, waitingForUser = f
           mode !== 'default' && MODE_INFO[mode]?.label
             ? h(Text, { color: t[MODE_INFO[mode].color] || MODE_INFO[mode].color }, ` · ${MODE_INFO[mode].label}`)
             : null,
+          session?.autoSpeak
+            ? h(Text, { color: t.warning || 'yellow' }, ' · 🔊')
+            : null,
           queuedCount > 0
             ? h(Text, { color: t.subtle, dimColor: true }, ` · в очереди: ${queuedCount}`)
             : null,
@@ -130,6 +133,9 @@ export function StatusBar({ status, session, queuedCount = 0, waitingForUser = f
         effortSuffix ? h(Text, { color: t.subtle, dimColor: true }, effortSuffix) : null,
         mode !== 'default' && MODE_INFO[mode]?.label
           ? h(Text, { color: t[MODE_INFO[mode].color] || MODE_INFO[mode].color }, ` · ${MODE_INFO[mode].label}`)
+          : null,
+        session?.autoSpeak
+          ? h(Text, { color: t.warning || 'yellow' }, ' · 🔊 voice')
           : null
       )
     ),

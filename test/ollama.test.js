@@ -1,7 +1,8 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { ollamaHost, getProviderKey, PROVIDERS } from '../src/providers.js';
-import { fetchOllamaModels, fetchOllamaRuntimeContext, ollamaContextWarning } from '../src/models/ollama.js';
+import { ollamaHost, getProviderKey, detectProviderForModel, PROVIDERS } from '../src/providers.js';
+import { fetchOllamaModels, fetchOllamaRuntimeContext, ollamaContextWarning, checkOllamaServer } from '../src/models/ollama.js';
+import { selectModel } from '../src/session-actions.js';
 import { getModelContextLength } from '../src/llm/modelInfo.js';
 import { errorHint } from '../src/errors.js';
 import { runAgentTurn } from '../src/agent.js';
@@ -235,4 +236,37 @@ test('runAgentTurn: предупреждение о заполнении кон�
 
   assert.equal(psCallCount, 1, 'Повторный вызов /api/ps не должен выполняться для той же модели');
   assert.equal(warnings.length, 1, 'Предупреждение не должно повторяться для той же модели в сессии');
+});
+
+test('detectProviderForModel распознаёт ollama, ollama/ и ollama:', () => {
+  assert.equal(detectProviderForModel('ollama'), 'ollama');
+  assert.equal(detectProviderForModel('ollama/qwen2.5'), 'ollama');
+  assert.equal(detectProviderForModel('ollama:llama3.2'), 'ollama');
+});
+
+test('selectModel успешно выбирает Ollama без облачного API-ключа', async () => {
+  const session = { messages: [] };
+  const res = await selectModel(session, 'qwen2.5-coder:7b', 'ollama');
+  assert.equal(res.ok, true);
+  assert.equal(session.provider, 'ollama');
+  assert.equal(session.apiKey, 'ollama');
+  assert.equal(session.model, 'qwen2.5-coder:7b');
+});
+
+test('checkOllamaServer возвращает running статус и список моделей', async () => {
+  globalThis.fetch = async (url) => {
+    assert.ok(String(url).endsWith('/api/tags'));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        models: [{ name: 'test-model:latest' }]
+      })
+    };
+  };
+
+  const status = await checkOllamaServer();
+  assert.equal(status.running, true);
+  assert.equal(status.models.length, 1);
+  assert.equal(status.models[0].id, 'test-model:latest');
 });

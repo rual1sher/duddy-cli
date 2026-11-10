@@ -18,7 +18,7 @@ import {
 import { fetchGoogleModels } from './google.js';
 import { fetchOpenRouterModels } from './openrouter.js';
 import { fetchXaiModels } from './xai.js';
-import { fetchOllamaModels } from './ollama.js';
+import { fetchOllamaModels, fetchOllamaPs } from './ollama.js';
 
 /**
  * Кэш каталога моделей в памяти модуля
@@ -76,7 +76,7 @@ export function findModel(id) {
  * @returns {Promise<{ provider: string, models: Array<object> }>}
  */
 async function loadProviderModels(provider, keys) {
-  if (catalogCache[provider]) {
+  if (provider !== 'ollama' && catalogCache[provider]) {
     return { provider, models: catalogCache[provider] };
   }
 
@@ -105,6 +105,20 @@ async function loadProviderModels(provider, keys) {
   } else if (provider === 'ollama') {
     // Без запущенной Ollama запрос падает, и группа просто не попадает в список
     models = await fetchOllamaModels();
+    try {
+      const running = await fetchOllamaPs();
+      const runningIds = new Set(running.map(r => r.id));
+      for (const m of models) {
+        if (runningIds.has(m.id)) {
+          m.running = true;
+        }
+      }
+      for (const r of running) {
+        if (!models.some(m => m.id === r.id)) {
+          models.unshift({ ...r, running: true });
+        }
+      }
+    } catch {}
   }
 
   if (probe && needsProbe(provider)) {

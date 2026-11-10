@@ -104,3 +104,70 @@ export function ollamaContextWarning(promptTokens, runtimeCtx) {
   if (typeof promptTokens !== 'number' || promptTokens < runtimeCtx * 0.75) return null;
   return `Память модели почти заполнена: запрос занял ${promptTokens} из ${runtimeCtx} токенов, следующие шаги могут не поместиться. Увеличьте окно: OLLAMA_CONTEXT_LENGTH=32768 ollama serve (или Environment="OLLAMA_CONTEXT_LENGTH=32768" через sudo systemctl edit ollama).`;
 }
+
+/**
+ * Получить список активных моделей из ollama ps (/api/ps)
+ * @returns {Promise<Array<object>>}
+ */
+export async function fetchOllamaPs() {
+  try {
+    const res = await fetch(`${ollamaHost()}/api/ps`, {
+      signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS)
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    const raw = Array.isArray(json?.models) ? json.models : [];
+    return raw.map(toModelEntry).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Проверить доступность сервера Ollama и получить список запущенных и установленных моделей
+ * @returns {Promise<{ running: boolean, host: string, models: Array<object>, runningModels: Array<object>, error?: string }>}
+ */
+export async function checkOllamaServer() {
+  const host = ollamaHost();
+  try {
+    const [tagsRes, psRes] = await Promise.allSettled([
+      fetch(`${host}/api/tags`, { signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS) }),
+      fetch(`${host}/api/ps`, { signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS) })
+    ]);
+
+    const tagsOk = tagsRes.status === 'fulfilled' && tagsRes.value.ok;
+    const psOk = psRes.status === 'fulfilled' && psRes.value.ok;
+
+    if (!tagsOk && !psOk) {
+      return { running: false, host, models: [], runningModels: [] };
+    }
+
+    const tagsJson = tagsOk ? await tagsRes.value.json().catch(() => ({})) : {};
+    const psJson = psOk ? await psRes.value.json().catch(() => ({})) : {};
+
+    const rawTags = Array.isArray(tagsJson?.models) ? tagsJson.models : [];
+    const rawPs = Array.isArray(psJson?.models) ? psJson.models : [];
+
+    const runningModels = rawPs.map(toModelEntry).filter(Boolean);
+    const installedModels = rawTags.map(toModelEntry).filter(Boolean);
+
+    const seen = new Set();
+    const models = [];
+    for (const m of runningModels) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        models.push({ ...m, running: true });
+      }
+    }
+    for (const m of installedModels) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        models.push(m);
+      }
+    }
+
+    return { running: true, host, models, runningModels };
+  } catch (err) {
+    return { running: false, host, models: [], runningModels: [], error: err.message };
+  }
+}

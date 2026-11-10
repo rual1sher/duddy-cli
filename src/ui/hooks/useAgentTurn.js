@@ -14,6 +14,7 @@ import { describeToolStart } from '../../toolDisplay.js';
 import { recordRequest } from '../../models/limits.js';
 import { PLAN_MODE_PROMPT } from '../../modes.js';
 import { systemPromptFor } from '../../config.js';
+import { speak, stopSpeech } from '../../voice/index.js';
 
 /**
  * Формирует запись о завершении агентного хода с длительностью, токенами и списком изменений
@@ -179,10 +180,12 @@ export function useAgentTurn({
   const sendRef = useRef(null);
 
   const abort = useCallback(() => {
+    stopSpeech();
     abortControllerRef.current?.abort();
   }, []);
 
   const handleSend = async (userText, images = []) => {
+    stopSpeech();
     const trimmed = userText.trim();
     if (!trimmed) return;
 
@@ -254,6 +257,10 @@ export function useAgentTurn({
       commitTurn(session, content, newMessages, finalText);
       succeeded = true;
       clearModelBusy(session.provider, session.model);
+
+      if (session.autoSpeak && finalText) {
+        speak(finalText).catch(() => {});
+      }
 
       const turnElapsed = elapsedMs ?? (Date.now() - startMs);
       session.lastTurnMs = turnElapsed;

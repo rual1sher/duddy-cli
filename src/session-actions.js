@@ -15,6 +15,7 @@ import { MAX_HISTORY_TURNS } from './history.js';
 import { readLimits } from './models/limits.js';
 
 export const AVAILABLE_COMMANDS = [
+  { cmd: '/voice', desc: 'Голосовой ввод или авто-озвучка (/voice on/off, Ctrl+S)' },
   { cmd: '/model', desc: 'Список моделей ваших провайдеров с поиском' },
   { cmd: '/effort', desc: 'Уровень рассуждений модели: low / medium / high' },
   { cmd: '/login', desc: 'Авторизация в OpenRouter, Google AI Studio или xAI' },
@@ -35,48 +36,62 @@ export const AVAILABLE_COMMANDS = [
  * @returns {Promise<{ ok: boolean, message: string, needsLogin?: string }>}
  */
 export async function selectModel(session, modelId, providerId) {
-  const provId = providerId || detectProviderForModel(modelId);
+  let cleanId = String(modelId || '').trim();
+  let provId = providerId;
+
+  if (!provId) {
+    if (cleanId.startsWith('ollama/') || cleanId.startsWith('ollama:')) {
+      provId = 'ollama';
+      cleanId = cleanId.replace(/^ollama[\/:]/, '');
+    } else if (cleanId.toLowerCase() === 'ollama') {
+      provId = 'ollama';
+      cleanId = session.model && session.provider === 'ollama' ? session.model : '';
+    } else {
+      provId = detectProviderForModel(cleanId);
+    }
+  }
+
   const provider = getProvider(provId);
-  const unavailable = findModel(modelId)?.unavailable || getUnavailableReason(provider.id, modelId);
+  const unavailable = findModel(cleanId)?.unavailable || getUnavailableReason(provider.id, cleanId);
   if (unavailable) {
-    return { ok: false, message: `Модель ${modelId} ${UNAVAILABLE_REASONS[unavailable]} — выберите другую` };
+    return { ok: false, message: `Модель ${cleanId} ${UNAVAILABLE_REASONS[unavailable]} — выберите другую` };
   }
   const config = loadConfig();
   const key = getProviderKey(provider.id, config) || (session.provider === provider.id ? session.apiKey : '');
 
-  if (!key) {
+  if (!key && !provider.local) {
     return {
       ok: false,
       needsLogin: provider.id,
-      message: `Для модели ${modelId} требуется ключ ${provider.title}.`
+      message: `Для модели ${cleanId} требуется ключ ${provider.title}.`
     };
   }
 
   session.provider = provider.id;
-  session.apiKey = key;
-  session.model = modelId;
+  session.apiKey = key || (provider.local ? 'ollama' : '');
+  session.model = cleanId;
   session.lastRoutedModel = '';
   session.ollamaRuntimeContext = undefined;
 
   const currentModels = config.models || {};
   saveConfig({
     provider: provider.id,
-    model: modelId,
-    models: { ...currentModels, [provider.id]: modelId }
+    model: cleanId,
+    models: { ...currentModels, [provider.id]: cleanId }
   });
 
-  const cached = findModel(modelId);
+  const cached = findModel(cleanId);
   if (cached?.contextLength) {
     session.contextLength = cached.contextLength;
   } else {
     try {
-      session.contextLength = await getModelContextLength(modelId, provider.id, key);
+      session.contextLength = await getModelContextLength(cleanId, provider.id, session.apiKey);
     } catch {}
   }
 
   return {
     ok: true,
-    message: `Модель: ${modelId} · ${provider.title}`
+    message: `Модель: ${cleanId} · ${provider.title}`
   };
 }
 
@@ -582,6 +597,7 @@ export function helpLines() {
   lines.push('');
   lines.push(chalk.dim('💡 Подсказки:'));
   lines.push(chalk.dim('  / — команды'));
+  lines.push(chalk.dim('  Ctrl+S — голосовой ввод (микрофон) или прервать речь'));
   lines.push(chalk.dim('  Shift+Tab — режим: обычный → правки без подтверждения → план → авто'));
   lines.push(chalk.dim('  Esc — прервать ответ / очистить ввод'));
   lines.push(chalk.dim('  Ctrl+C ×2 — выход'));

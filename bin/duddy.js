@@ -42,11 +42,13 @@ ${chalk.bold("Usage:")}
   ${paint('success')('cat error.log | duddy "explain"')} Analyze piped input
 
 ${chalk.bold("Options:")}
+  ${paint('warning')("-s, --speak")} Озвучивать ответы модели голосом (TTS)
   ${paint('warning')("-y, --yes")}   Automatically confirm all tool actions without prompt
   ${paint('warning')("-h, --help")}  Show help
   ${paint('warning')("-v, --version")} Show version
 
 ${chalk.bold("Interactive Commands:")}
+  ${paint('warning')("/voice")}   Голосовой ввод или авто-озвучка (/voice on/off, Ctrl+S)
   ${paint('warning')("/model")}   Список моделей ваших провайдеров с поиском (включая локальную Ollama)
   ${paint('warning')("/effort")}  Set reasoning level (auto, low, medium, high)
   ${paint('warning')("/theme")}   Выбрать цветовую тему
@@ -66,10 +68,13 @@ ${chalk.bold("Interactive Commands:")}
   }
 
   let autoApprove = false;
+  let autoSpeak = Boolean(config.voiceAutoSpeak);
   const args = [];
   for (const arg of rawArgs) {
     if (arg === "--yes" || arg === "-y") {
       autoApprove = true;
+    } else if (arg === "--speak" || arg === "-s") {
+      autoSpeak = true;
     } else {
       args.push(arg);
     }
@@ -94,6 +99,7 @@ ${chalk.bold("Interactive Commands:")}
     systemPromptLean: DEFAULT_SYSTEM_PROMPT + leanContext,
     messages: [],
     autoApprove,
+    autoSpeak,
   };
 
   // Check if data is being piped via stdin (e.g. cat file.log | duddy "explain")

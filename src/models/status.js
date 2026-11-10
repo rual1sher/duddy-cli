@@ -194,6 +194,7 @@ export function classifyModelError(status, message = '') {
  * @returns {string|null}
  */
 export function getUnavailableReason(provider, id) {
+  if (provider === 'ollama') return null;
   const entry = readStatus().models[`${provider}:${id}`];
   if (!entry || Date.now() - entry.at > STATUS_TTL_MS) return null;
   return entry.reason;
@@ -228,6 +229,7 @@ export function markModelUnavailable(provider, id, reason) {
  * @returns {string|null} Ключ причины или null для временных ошибок
  */
 export function noteModelError(provider, id, err) {
+  if (provider === 'ollama') return null;
   const reason = classifyModelError(err?.status, err?.message);
   if (reason) {
     markModelUnavailable(provider, id, reason);

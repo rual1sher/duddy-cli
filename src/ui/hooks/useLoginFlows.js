@@ -3,8 +3,10 @@
  */
 
 import { useCallback } from 'react';
-import { connectGoogle, connectXai, saveOpenRouterKey } from '../../session-actions.js';
+import { connectGoogle, connectXai, saveOpenRouterKey, selectModel } from '../../session-actions.js';
 import { startBrowserLogin, openBrowser } from '../../auth.js';
+import { checkOllamaServer } from '../../models/ollama.js';
+import { saveConfig } from '../../config.js';
 
 /**
  * Хук со сценариями авторизации пользователя в провайдерах
@@ -105,13 +107,33 @@ export function useLoginFlows({ session, setOverlay, addNote }) {
       title: 'Авторизация в провайдерах',
       searchable: false,
       items: [
+        { label: 'Локальная Ollama (без API-ключа)', hint: 'localhost:11434', value: 'ollama' },
         { label: 'OpenRouter — войти через браузер', hint: 'OAuth', value: 'openrouter_browser' },
         { label: 'OpenRouter — вставить ключ', hint: 'sk-or-...', value: 'openrouter_manual' },
         { label: 'Google AI Studio — вставить ключ', hint: 'Gemini API', value: 'google' },
         { label: 'xAI (Grok) — вставить ключ', hint: 'XAI_API_KEY', value: 'xai' }
       ],
-      onSelect: (choice) => {
+      onSelect: async (choice) => {
         setOverlay(null);
+        if (choice === 'ollama') {
+          session.provider = 'ollama';
+          session.apiKey = 'ollama';
+          saveConfig({ provider: 'ollama' });
+          const status = await checkOllamaServer();
+          if (status.running && status.models.length > 0) {
+            const chosen = status.runningModels[0] || status.models[0];
+            await selectModel(session, chosen.id, 'ollama');
+            addNote('success', `Выбран локальный провайдер Ollama · модель: ${chosen.id}`);
+          } else if (status.running) {
+            addNote('warn', 'Ollama запущена, но нет запущенных моделей (ollama ps пуст). Запустите: ollama run <модель>');
+          } else {
+            addNote('warn', 'Ollama не найдена по адресу http://localhost:11434. Запустите: ollama serve');
+          }
+          if (typeof onSuccess === 'function') {
+            await onSuccess();
+          }
+          return;
+        }
         if (choice === 'openrouter_browser') {
           startOpenRouterBrowserLogin(onSuccess);
         } else if (choice === 'openrouter_manual') {
@@ -124,7 +146,7 @@ export function useLoginFlows({ session, setOverlay, addNote }) {
       },
       onCancel: () => setOverlay(null)
     });
-  }, [setOverlay, startGoogleLogin, startXaiLogin, startOpenRouterBrowserLogin, startOpenRouterManualLogin]);
+  }, [session, setOverlay, addNote, startGoogleLogin, startXaiLogin, startOpenRouterBrowserLogin, startOpenRouterManualLogin]);
 
   return {
     startGoogleLogin,

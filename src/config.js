@@ -51,7 +51,8 @@ const DEFAULT_CONFIG = {
   model: 'openrouter/free',
   models: {},
   reasoningEffort: 'auto',
-  temperature: 0.4
+  temperature: 0.4,
+  voiceAutoSpeak: false
 };
 
 export function loadConfig() {

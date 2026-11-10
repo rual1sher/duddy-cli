@@ -11,10 +11,22 @@ import {
   contextLines,
   helpLines
 } from '../../session-actions.js';
-import { listModels, findModel } from '../../models/catalog.js';
+import { listModels, findModel, clearCatalogCache } from '../../models/catalog.js';
+import { checkOllamaServer } from '../../models/ollama.js';
 import { UNAVAILABLE_REASONS } from '../../models/status.js';
 import { loadConfig, saveConfig } from '../../config.js';
 import { getProvider, detectProviderForModel } from '../../providers.js';
+import path from 'node:path';
+import os from 'node:os';
+import fs from 'node:fs';
+import {
+  isVoiceAvailable,
+  getVoiceStatus,
+  installVoice,
+  recordAudio,
+  stopRecording,
+  transcribeAudioFile
+} from '../../voice/index.js';
 import { clearScreenToTop } from './useResizeRedraw.js';
 import { THEMES, THEME_IDS, getThemeId, setTheme } from '../../theme.js';
 import { ThemePreview } from '../ThemePreview.js';
@@ -22,6 +34,10 @@ import { ThemePreview } from '../ThemePreview.js';
 const h = React.createElement;
 
 const COMMAND_ALIASES = {
+  v: 'voice',
+  tts: 'voice',
+  stt: 'voice',
+  speak: 'voice',
   ctx: 'context',
   m: 'model',
   models: 'model',
@@ -143,6 +159,13 @@ function changeEffort(arg, { session, setOverlay, addNote }) {
 function login(arg, { session, addNote, startGoogleLogin, startXaiLogin, startOpenRouterBrowserLogin, openLoginPicker }) {
   if (arg) {
     const lower = arg.toLowerCase();
+    if (lower === 'ollama' || lower === 'local') {
+      session.provider = 'ollama';
+      session.apiKey = 'ollama';
+      saveConfig({ provider: 'ollama' });
+      addNote('success', 'Выбран локальный провайдер Ollama (http://localhost:11434)');
+      return;
+    }
     if (lower === 'google' || lower === 'gemini' || lower === 'aistudio') {
       startGoogleLogin();
       return;
@@ -168,9 +191,35 @@ function login(arg, { session, addNote, startGoogleLogin, startXaiLogin, startOp
  * Переключает модель по указанному идентификатору
  */
 async function changeModel(arg, ctx) {
-  // Модели Ollama по имени не отличить от OpenRouter, поэтому сначала смотрим в каталог
-  const provId = findModel(arg)?.provider || detectProviderForModel(arg);
-  await applyModelChoice(arg, provId, ctx);
+  let target = (arg || '').trim();
+  let provId = null;
+
+  if (target.startsWith('ollama/') || target.startsWith('ollama:')) {
+    provId = 'ollama';
+    target = target.replace(/^ollama[\/:]/, '');
+  } else if (target.toLowerCase() === 'ollama') {
+    provId = 'ollama';
+    const status = await checkOllamaServer();
+    target = status.runningModels[0]?.id || status.models[0]?.id || ctx.session.model;
+    if (!target) {
+      ctx.addNote('warn', 'В Ollama нет запущенных моделей (ollama ps пуст). Запустите: ollama run <модель>');
+      return;
+    }
+  } else {
+    provId = findModel(target)?.provider;
+    if (!provId) {
+      const status = await checkOllamaServer();
+      const inOllama = status.models.find(m => m.id === target || m.id.startsWith(target));
+      if (inOllama) {
+        provId = 'ollama';
+        target = inOllama.id;
+      } else {
+        provId = detectProviderForModel(target);
+      }
+    }
+  }
+
+  await applyModelChoice(target, provId, ctx);
 }
 
 /**
@@ -178,6 +227,7 @@ async function changeModel(arg, ctx) {
  */
 async function pickModel(ctx) {
   const { session, setOverlay, addNote } = ctx;
+  clearCatalogCache('ollama');
   setOverlay({ kind: 'loading', text: 'Загрузка моделей…' });
   let models = [];
   try {
@@ -187,9 +237,20 @@ async function pickModel(ctx) {
   }
 
   if (!models || models.length === 0) {
-    setOverlay(null);
-    addNote('info', 'Нет доступных моделей — выполните /login');
-    return;
+    const status = await checkOllamaServer();
+    if (status.running && status.models.length > 0) {
+      models = status.models;
+    } else {
+      setOverlay(null);
+      if (status.running) {
+        addNote('warn', 'В Ollama нет установленных или запущенных моделей (ollama ps пуст).');
+        addNote('info', 'Запустите модель в консоли: ollama run <модель>');
+      } else {
+        addNote('warn', 'Локальная Ollama не запущена (http://localhost:11434). Запустите: ollama serve');
+        addNote('info', 'Для облачных моделей выполните /login');
+      }
+      return;
+    }
   }
 
   // Группы по провайдерам, которые реально вернули модели (у Ollama ключа нет, есть только сервер)
@@ -217,8 +278,8 @@ async function pickModel(ctx) {
       reason = 'перегружена сейчас — попробуйте позже';
     }
     return {
-      label: m.name,
-      hint: m.id,
+      label: m.running ? `${m.name} · запущен (ps)` : m.name,
+      hint: m.running ? `${m.id} · ollama ps` : m.id,
       value: { id: m.id, provider: m.provider },
       current: m.id === session.model,
       group: connected.length > 1 ? getProvider(m.provider).title : undefined,
@@ -281,6 +342,102 @@ export function openThemePicker(ctx, { onDone } = {}) {
 }
 
 /**
+ * Обрабатывает команду управления голосом (/voice, /voice on/off, /voice status, /voice install)
+ */
+async function handleVoiceCommand(arg, ctx) {
+  const { session, addNote, setOverlay, handleSend, setDraft } = ctx;
+  const sub = (arg || '').trim().toLowerCase();
+
+  if (sub === 'on' || sub === '1' || sub === 'true') {
+    session.autoSpeak = true;
+    saveConfig({ voiceAutoSpeak: true });
+    addNote('success', '🔊 Авто-озвучка ответов включена (TTS: Piper). Для выключения: /voice off');
+    return;
+  }
+
+  if (sub === 'off' || sub === '0' || sub === 'false') {
+    session.autoSpeak = false;
+    saveConfig({ voiceAutoSpeak: false });
+    addNote('info', 'Авто-озвучка ответов выключена.');
+    return;
+  }
+
+  if (sub === 'status') {
+    const status = getVoiceStatus();
+    addNote('info', `Голосовые компоненты: ${status.available ? 'готовы к работе' : 'не установлены'}`);
+    addNote('info', `Piper: ${status.piper ? '✔' : '✖'}, Whisper: ${status.whisper ? '✔' : '✖'}, Модели: ${status.piperModel && status.whisperModel ? '✔' : '✖'}`);
+    return;
+  }
+
+  if (sub === 'install' || sub === 'setup') {
+    setOverlay({ kind: 'loading', text: 'Установка голосовых компонентов (Piper & Whisper)…' });
+    try {
+      await installVoice({
+        onProgress: (msg) => setOverlay({ kind: 'loading', text: msg })
+      });
+      setOverlay(null);
+      addNote('success', 'Голосовые компоненты успешно установлены!');
+    } catch (err) {
+      setOverlay(null);
+      addNote('warn', `Ошибка установки: ${err.message}`);
+    }
+    return;
+  }
+
+  if (!isVoiceAvailable()) {
+    addNote('warn', 'Голосовые компоненты не установлены. Выполните: /voice install');
+    return;
+  }
+
+  // Запуск записи с микрофона (STT)
+  const tempWav = path.join(os.tmpdir(), `duddy-voice-${Date.now()}.wav`);
+  let finished = false;
+
+  const stopAndTranscribe = async () => {
+    if (finished) return;
+    finished = true;
+    stopRecording();
+    setOverlay({ kind: 'loading', text: 'Распознавание речи (whisper.cpp)…' });
+    try {
+      const text = await transcribeAudioFile(tempWav);
+      setOverlay(null);
+      if (text) {
+        if (typeof handleSend === 'function') {
+          handleSend(text);
+        } else if (typeof setDraft === 'function') {
+          setDraft({ text, key: Date.now() });
+        }
+      } else {
+        addNote('warn', 'Голос не распознан (тишина)');
+      }
+    } catch (err) {
+      setOverlay(null);
+      addNote('warn', `Ошибка распознавания: ${err.message}`);
+    } finally {
+      try { if (fs.existsSync(tempWav)) fs.unlinkSync(tempWav); } catch {}
+    }
+  };
+
+  setOverlay({
+    kind: 'recording',
+    text: 'Слушаю микрофон… Говорите (Enter или Ctrl+S — отправить, Esc — отмена)',
+    onResolve: () => stopAndTranscribe(),
+    onCancel: () => {
+      finished = true;
+      stopRecording();
+      setOverlay(null);
+      try { if (fs.existsSync(tempWav)) fs.unlinkSync(tempWav); } catch {}
+    }
+  });
+
+  recordAudio(tempWav, { maxDurationMs: 25000 }).then(() => {
+    if (!finished) {
+      stopAndTranscribe();
+    }
+  });
+}
+
+/**
  * Хук обработки слэш-команд
  *
  * @param {object} params
@@ -299,7 +456,9 @@ export function useCommands({
   startGoogleLogin,
   startXaiLogin,
   startOpenRouterBrowserLogin,
-  openLoginPicker
+  openLoginPicker,
+  handleSend,
+  setDraft
 }) {
   const ctx = {
     session,
@@ -314,7 +473,9 @@ export function useCommands({
     startGoogleLogin,
     startXaiLogin,
     startOpenRouterBrowserLogin,
-    openLoginPicker
+    openLoginPicker,
+    handleSend,
+    setDraft
   };
 
   const handleCommand = useCallback(async (rawCmd) => {
@@ -362,6 +523,10 @@ export function useCommands({
 
       case 'theme':
         openThemePicker(ctx);
+        return;
+
+      case 'voice':
+        await handleVoiceCommand(arg, ctx);
         return;
 
       default:

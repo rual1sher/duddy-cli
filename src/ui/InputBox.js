@@ -161,6 +161,11 @@ export function InputBox({
       return;
     }
 
+    if (key.ctrl && input === 's') {
+      setValue(prevValueRef.current);
+      return;
+    }
+
     if (key.ctrl && input === 'v') {
       setValue(prevValueRef.current);
 

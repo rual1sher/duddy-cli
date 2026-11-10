@@ -140,6 +140,9 @@ export function getProviderKey(providerId, config = {}) {
  */
 export function detectProviderForModel(modelId = '') {
   const m = String(modelId).toLowerCase().trim();
+  if (m === 'ollama' || m.startsWith('ollama/') || m.startsWith('ollama:')) {
+    return 'ollama';
+  }
   if ((m.startsWith('gemini-') || m.startsWith('gemma-')) && !m.includes('/')) {
     return 'google';
   }

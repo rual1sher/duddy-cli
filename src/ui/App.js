@@ -20,6 +20,7 @@ import { listModels, findModel } from '../models/catalog.js';
 import { loadConfig } from '../config.js';
 import { fetchKeyInfo, getModelContextLength } from '../llm/modelInfo.js';
 import { nextMode } from '../modes.js';
+import { isSpeaking, stopSpeech } from '../voice/index.js';
 
 const h = React.createElement;
 
@@ -86,11 +87,11 @@ export function App({ session }) {
         { setOverlay, setStaticKey, addNote },
         {
           onDone: () => {
-            if (!session.apiKey) openLoginPicker();
+            if (!session.apiKey && session.provider !== 'ollama') openLoginPicker();
           }
         }
       );
-    } else if (!session.apiKey) {
+    } else if (!session.apiKey && session.provider !== 'ollama') {
       openLoginPicker();
     }
     listModels(loadConfig()).catch(() => {});
@@ -160,7 +161,9 @@ export function App({ session }) {
     startGoogleLogin,
     startXaiLogin,
     startOpenRouterBrowserLogin,
-    openLoginPicker
+    openLoginPicker,
+    handleSend,
+    setDraft
   });
   handleCommandRef.current = handleCommand;
 
@@ -173,8 +176,29 @@ export function App({ session }) {
     return true;
   }, [overlay]);
 
-  // Глобальный перехват клавиатуры (Ctrl+C, Esc, Shift+Tab)
+  // Глобальный перехват клавиатуры (Ctrl+C, Esc, Shift+Tab, Ctrl+S)
   useInput((input, key) => {
+    if (isSpeaking() && (key.escape || (key.ctrl && input === 's'))) {
+      stopSpeech();
+      return;
+    }
+
+    if (key.ctrl && input === 's') {
+      if (overlay?.kind === 'recording') {
+        overlay.onResolve?.();
+        return;
+      }
+      if (!overlay && status !== 'working') {
+        handleCommandRef.current?.('/voice');
+        return;
+      }
+    }
+
+    if (key.return && overlay?.kind === 'recording') {
+      overlay.onResolve?.();
+      return;
+    }
+
     if (key.tab && key.shift && !overlay) {
       setMode(nextMode(mode));
       return;
