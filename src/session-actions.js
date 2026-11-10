@@ -9,12 +9,14 @@ import { PROVIDERS, getProvider, getProviderKey, detectProviderForModel } from '
 import { findModel, clearCatalogCache, catalogCache } from './models/catalog.js';
 import { validateGoogleKey } from './models/google.js';
 import { validateXaiKey } from './models/xai.js';
+import { checkOllamaServer } from './models/ollama.js';
 import { getUnavailableReason, UNAVAILABLE_REASONS } from './models/status.js';
 import { fetchKeyInfo, getModelContextLength } from './llm/modelInfo.js';
 import { MAX_HISTORY_TURNS } from './history.js';
 import { readLimits } from './models/limits.js';
 
 export const AVAILABLE_COMMANDS = [
+  { cmd: '/update', desc: 'Обновить Duddy до последней версии' },
   { cmd: '/voice', desc: 'Голосовой ввод или авто-озвучка (/voice on/off, Ctrl+S)' },
   { cmd: '/model', desc: 'Список моделей ваших провайдеров с поиском' },
   { cmd: '/effort', desc: 'Уровень рассуждений модели: low / medium / high' },
@@ -46,9 +48,16 @@ export async function selectModel(session, modelId, providerId) {
     } else if (cleanId.toLowerCase() === 'ollama') {
       provId = 'ollama';
       cleanId = session.model && session.provider === 'ollama' ? session.model : '';
+      if (!cleanId) {
+        return { ok: false, message: 'Укажите модель Ollama: /model ollama/<модель>' };
+      }
     } else {
       provId = detectProviderForModel(cleanId);
     }
+  }
+
+  if (!cleanId) {
+    return { ok: false, message: 'Не указан идентификатор модели' };
   }
 
   const provider = getProvider(provId);
@@ -195,6 +204,38 @@ export async function connectGoogle(session, key) {
  */
 export async function connectXai(session, key) {
   return connectWithKey(session, 'xai', key, validateXaiKey);
+}
+
+/**
+ * Подключает локальный сервер Ollama с выбором запущенной или установленной модели.
+ *
+ * @param {object} session - Текущая сессия Duddy
+ * @returns {Promise<{ ok: boolean, message: string }>}
+ */
+export async function connectOllama(session) {
+  const status = await checkOllamaServer();
+  if (!status.running) {
+    return {
+      ok: false,
+      message: `Ollama не найдена по адресу ${status.host}. Запустите: ollama serve`
+    };
+  }
+
+  const chosen = status.runningModels[0] || status.models[0];
+  if (!chosen) {
+    return {
+      ok: false,
+      message: 'В Ollama нет моделей. Скачайте модель: ollama pull <модель>'
+    };
+  }
+
+  const id = chosen.id;
+  const selected = await selectModel(session, id, 'ollama');
+  if (!selected.ok) return selected;
+  return {
+    ok: true,
+    message: `Выбран локальный провайдер Ollama · модель: ${id}`
+  };
 }
 
 function makeProgressBar(percent, width = 16) {

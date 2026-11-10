@@ -7,6 +7,7 @@ import {
   selectModel,
   setEffort,
   saveOpenRouterKey,
+  connectOllama,
   usageLines,
   contextLines,
   helpLines
@@ -30,10 +31,12 @@ import {
 import { clearScreenToTop } from './useResizeRedraw.js';
 import { THEMES, THEME_IDS, getThemeId, setTheme } from '../../theme.js';
 import { ThemePreview } from '../ThemePreview.js';
+import { runUpdate } from '../../update.js';
 
 const h = React.createElement;
 
 const COMMAND_ALIASES = {
+  upgrade: 'update',
   v: 'voice',
   tts: 'voice',
   stt: 'voice',
@@ -156,14 +159,12 @@ function changeEffort(arg, { session, setOverlay, addNote }) {
 /**
  * Выполняет сценарий входа в провайдер
  */
-function login(arg, { session, addNote, startGoogleLogin, startXaiLogin, startOpenRouterBrowserLogin, openLoginPicker }) {
+async function login(arg, { session, addNote, startGoogleLogin, startXaiLogin, startOpenRouterBrowserLogin, openLoginPicker }) {
   if (arg) {
     const lower = arg.toLowerCase();
     if (lower === 'ollama' || lower === 'local') {
-      session.provider = 'ollama';
-      session.apiKey = 'ollama';
-      saveConfig({ provider: 'ollama' });
-      addNote('success', 'Выбран локальный провайдер Ollama (http://localhost:11434)');
+      const res = await connectOllama(session);
+      addNote(res.ok ? 'success' : 'warn', res.message);
       return;
     }
     if (lower === 'google' || lower === 'gemini' || lower === 'aistudio') {
@@ -352,6 +353,9 @@ async function handleVoiceCommand(arg, ctx) {
     session.autoSpeak = true;
     saveConfig({ voiceAutoSpeak: true });
     addNote('success', '🔊 Авто-озвучка ответов включена (TTS: Piper). Для выключения: /voice off');
+    if (!isVoiceAvailable()) {
+      addNote('warn', 'Авто-озвучка включена, но голос не установлен — выполните /voice install');
+    }
     return;
   }
 
@@ -365,7 +369,7 @@ async function handleVoiceCommand(arg, ctx) {
   if (sub === 'status') {
     const status = getVoiceStatus();
     addNote('info', `Голосовые компоненты: ${status.available ? 'готовы к работе' : 'не установлены'}`);
-    addNote('info', `Piper: ${status.piper ? '✔' : '✖'}, Whisper: ${status.whisper ? '✔' : '✖'}, Модели: ${status.piperModel && status.whisperModel ? '✔' : '✖'}`);
+    addNote('info', `Piper: ${status.piper ? '✔' : '✖'}, Whisper: ${status.whisper ? '✔' : '✖'}, Модели: ${status.piperModel && status.piperConfig && status.whisperModel ? '✔' : '✖'}`);
     return;
   }
 
@@ -393,12 +397,20 @@ async function handleVoiceCommand(arg, ctx) {
   const tempWav = path.join(os.tmpdir(), `duddy-voice-${Date.now()}.wav`);
   let finished = false;
 
+  const recordPromise = recordAudio(tempWav, { maxDurationMs: 25000 });
+
   const stopAndTranscribe = async () => {
     if (finished) return;
     finished = true;
     stopRecording();
     setOverlay({ kind: 'loading', text: 'Распознавание речи (whisper.cpp)…' });
     try {
+      const recorded = await recordPromise;
+      if (recorded === false) {
+        setOverlay(null);
+        addNote('warn', 'Не удалось записать звук с микрофона — нужен pw-record (PipeWire) или arecord (alsa-utils)');
+        return;
+      }
       const text = await transcribeAudioFile(tempWav);
       setOverlay(null);
       if (text) {
@@ -430,7 +442,7 @@ async function handleVoiceCommand(arg, ctx) {
     }
   });
 
-  recordAudio(tempWav, { maxDurationMs: 25000 }).then(() => {
+  recordPromise.then(() => {
     if (!finished) {
       stopAndTranscribe();
     }
@@ -510,7 +522,7 @@ export function useCommands({
         return;
 
       case 'login':
-        login(arg, ctx);
+        await login(arg, ctx);
         return;
 
       case 'model':
@@ -528,6 +540,21 @@ export function useCommands({
       case 'voice':
         await handleVoiceCommand(arg, ctx);
         return;
+
+      case 'update': {
+        addNote('info', 'Обновление…');
+        try {
+          const res = await runUpdate();
+          if (res.ok) {
+            addNote('success', res.message);
+          } else {
+            addNote('error', res.message);
+          }
+        } catch (err) {
+          addNote('error', `Ошибка обновления: ${err.message}`);
+        }
+        return;
+      }
 
       default:
         addNote('warn', `Неизвестная команда /${cmd} — введите / для списка`);

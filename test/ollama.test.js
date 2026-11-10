@@ -1,11 +1,29 @@
-import { test, afterEach } from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { test, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { ollamaHost, getProviderKey, detectProviderForModel, PROVIDERS } from '../src/providers.js';
-import { fetchOllamaModels, fetchOllamaRuntimeContext, ollamaContextWarning, checkOllamaServer } from '../src/models/ollama.js';
-import { selectModel } from '../src/session-actions.js';
-import { getModelContextLength } from '../src/llm/modelInfo.js';
-import { errorHint } from '../src/errors.js';
-import { runAgentTurn } from '../src/agent.js';
+
+// Подменяем HOME до динамического импорта, чтобы config.js взял наш путь
+const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'duddy-ollama-test-'));
+const originalHome = process.env.HOME;
+process.env.HOME = tmpHome;
+
+after(() => {
+  process.env.HOME = originalHome;
+  try {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  } catch {
+    // cleanup
+  }
+});
+
+const { ollamaHost, getProviderKey, detectProviderForModel, PROVIDERS } = await import('../src/providers.js');
+const { fetchOllamaModels, fetchOllamaRuntimeContext, ollamaContextWarning, checkOllamaServer } = await import('../src/models/ollama.js');
+const { selectModel, connectOllama } = await import('../src/session-actions.js');
+const { getModelContextLength } = await import('../src/llm/modelInfo.js');
+const { errorHint } = await import('../src/errors.js');
+const { runAgentTurn } = await import('../src/agent.js');
 
 const originalFetch = globalThis.fetch;
 
@@ -255,18 +273,92 @@ test('selectModel успешно выбирает Ollama без облачног
 
 test('checkOllamaServer возвращает running статус и список моделей', async () => {
   globalThis.fetch = async (url) => {
-    assert.ok(String(url).endsWith('/api/tags'));
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({
-        models: [{ name: 'test-model:latest' }]
-      })
-    };
+    const urlStr = String(url);
+    if (urlStr.endsWith('/api/tags')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          models: [{ name: 'test-model:latest' }]
+        })
+      };
+    }
+    if (urlStr.endsWith('/api/ps')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          models: []
+        })
+      };
+    }
+    throw new Error(`Unexpected fetch to ${urlStr}`);
   };
 
   const status = await checkOllamaServer();
   assert.equal(status.running, true);
   assert.equal(status.models.length, 1);
   assert.equal(status.models[0].id, 'test-model:latest');
+});
+
+test('selectModel(session, "ollama") при session без ollama-модели → ok:false, session.provider не меняется', async () => {
+  const session = { provider: 'openrouter', model: 'openrouter/free', messages: [] };
+  const res = await selectModel(session, 'ollama');
+  assert.equal(res.ok, false);
+  assert.equal(session.provider, 'openrouter');
+  assert.equal(session.model, 'openrouter/free');
+  assert.match(res.message, /Укажите модель Ollama/);
+});
+
+test('connectOllama: при моке fetch с недоступным сервером → ok:false и session не изменён', async () => {
+  globalThis.fetch = async () => {
+    throw new Error('Connection refused');
+  };
+  const session = { provider: 'openrouter', model: 'openrouter/free', messages: [] };
+  const res = await connectOllama(session);
+  assert.equal(res.ok, false);
+  assert.equal(session.provider, 'openrouter');
+  assert.equal(session.model, 'openrouter/free');
+  assert.match(res.message, /Ollama не найдена/);
+});
+
+test('connectOllama: при моке с моделью → ok:true, session.provider === "ollama", session.model === id', async () => {
+  globalThis.fetch = async (url) => {
+    const urlStr = String(url);
+    if (urlStr.endsWith('/api/tags')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          models: [{ name: 'llama3:8b' }]
+        })
+      };
+    }
+    if (urlStr.endsWith('/api/ps')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          models: []
+        })
+      };
+    }
+    if (urlStr.endsWith('/api/show')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model_info: { 'general.architecture': 'llama', 'llama.context_length': 8192 }
+        })
+      };
+    }
+    throw new Error(`Unexpected fetch to ${urlStr}`);
+  };
+
+  const session = { provider: 'openrouter', model: 'openrouter/free', messages: [] };
+  const res = await connectOllama(session);
+  assert.equal(res.ok, true);
+  assert.equal(session.provider, 'ollama');
+  assert.equal(session.model, 'llama3:8b');
+  assert.match(res.message, /Выбран локальный провайдер Ollama · модель: llama3:8b/);
 });

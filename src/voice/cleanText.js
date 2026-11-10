@@ -31,8 +31,12 @@ export function cleanTextForSpeech(text) {
   cleaned = cleaned.replace(/^[\s]*[-*+]\s+/gm, '');
   cleaned = cleaned.replace(/^[\s]*\d+\.\s+/gm, '');
 
-  // Убираем жирный/курсивный шрифт (**жирный**, *курсив*)
-  cleaned = cleaned.replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, '$1');
+  // Убираем жирный/курсивный шрифт (***x***, **x**, *x*, __x__, _x_)
+  cleaned = cleaned.replace(/(?<=^|[\s\p{P}])\*{3}([^\s*](?:[\s\S]*?[^\s*])?)\*{3}(?=$|[^\p{L}\p{N}_])/gu, '$1');
+  cleaned = cleaned.replace(/(?<=^|[\s\p{P}])\*{2}([^\s*](?:[\s\S]*?[^\s*])?)\*{2}(?=$|[^\p{L}\p{N}_])/gu, '$1');
+  cleaned = cleaned.replace(/(?<=^|[\s\p{P}])\*([^\s*](?:[\s\S]*?[^\s*])?)\*(?=$|[^\p{L}\p{N}_])/gu, '$1');
+  cleaned = cleaned.replace(/(?<=^|[\s\p{P}])_{2}([^\s_](?:[\s\S]*?[^\s_])?)_{2}(?=$|[^\p{L}\p{N}_])/gu, '$1');
+  cleaned = cleaned.replace(/(?<=^|[\s\p{P}])_([^\s_](?:[\s\S]*?[^\s_])?)_(?=$|[^\p{L}\p{N}_])/gu, '$1');
 
   // Убираем зачеркивание (~текст~)
   cleaned = cleaned.replace(/~~([^~]+)~~/g, '$1');
@@ -41,7 +45,7 @@ export function cleanTextForSpeech(text) {
   cleaned = cleaned.replace(/^>\s+/gm, '');
 
   // Убираем ANSI цвета, если затесались
-  cleaned = cleaned.replace(/\u001b\[\d+m/g, '');
+  cleaned = cleaned.replace(/\u001b\[[0-9;]*m/g, '');
 
   // Убираем множественные переносы строк и лишние пробелы
   cleaned = cleaned.replace(/\n+/g, '. ').replace(/\s{2,}/g, ' ').trim();

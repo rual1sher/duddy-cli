@@ -3,10 +3,8 @@
  */
 
 import { useCallback } from 'react';
-import { connectGoogle, connectXai, saveOpenRouterKey, selectModel } from '../../session-actions.js';
+import { connectGoogle, connectXai, connectOllama, saveOpenRouterKey } from '../../session-actions.js';
 import { startBrowserLogin, openBrowser } from '../../auth.js';
-import { checkOllamaServer } from '../../models/ollama.js';
-import { saveConfig } from '../../config.js';
 
 /**
  * Хук со сценариями авторизации пользователя в провайдерах
@@ -116,20 +114,9 @@ export function useLoginFlows({ session, setOverlay, addNote }) {
       onSelect: async (choice) => {
         setOverlay(null);
         if (choice === 'ollama') {
-          session.provider = 'ollama';
-          session.apiKey = 'ollama';
-          saveConfig({ provider: 'ollama' });
-          const status = await checkOllamaServer();
-          if (status.running && status.models.length > 0) {
-            const chosen = status.runningModels[0] || status.models[0];
-            await selectModel(session, chosen.id, 'ollama');
-            addNote('success', `Выбран локальный провайдер Ollama · модель: ${chosen.id}`);
-          } else if (status.running) {
-            addNote('warn', 'Ollama запущена, но нет запущенных моделей (ollama ps пуст). Запустите: ollama run <модель>');
-          } else {
-            addNote('warn', 'Ollama не найдена по адресу http://localhost:11434. Запустите: ollama serve');
-          }
-          if (typeof onSuccess === 'function') {
+          const res = await connectOllama(session);
+          addNote(res.ok ? 'success' : 'warn', res.message);
+          if (res.ok && typeof onSuccess === 'function') {
             await onSuccess();
           }
           return;
