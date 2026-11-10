@@ -13,6 +13,7 @@ import { buildProjectContext } from "../src/projectContext.js";
 import chalk from "chalk";
 import { setTheme, paint } from "../src/theme.js";
 import { isVoiceAvailable, speak } from "../src/voice/index.js";
+import { runUpdate } from "../src/update.js";
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -39,6 +40,7 @@ ${paint('accent').bold("Duddy")} - Terminal AI Assistant for Linux & DevOps
 
 ${chalk.bold("Usage:")}
   ${paint('success')("duddy")}                       Start interactive chat session (like agy)
+  ${paint('success')("duddy update")}                Обновить Duddy до последней версии
   ${paint('success')('duddy "your question"')}       Ask a quick one-off question
   ${paint('success')('cat error.log | duddy "explain"')} Analyze piped input
 
@@ -49,6 +51,7 @@ ${chalk.bold("Options:")}
   ${paint('warning')("-v, --version")} Show version
 
 ${chalk.bold("Interactive Commands:")}
+  ${paint('warning')("/update")}  Обновить Duddy до последней версии
   ${paint('warning')("/voice")}   Голосовой ввод или авто-озвучка (/voice on/off, Ctrl+S)
   ${paint('warning')("/model")}   Список моделей ваших провайдеров с поиском (включая локальную Ollama)
   ${paint('warning')("/effort")}  Set reasoning level (auto, low, medium, high)
@@ -66,6 +69,19 @@ ${chalk.bold("Interactive Commands:")}
   if (rawArgs.includes("--version") || rawArgs.includes("-v")) {
     console.log(`duddy v${pkg.version}`);
     process.exit(0);
+  }
+
+  if (rawArgs.length === 1 && rawArgs[0] === "update") {
+    const res = await runUpdate({
+      onLine: (line) => console.log(chalk.dim(line)),
+    });
+    if (res.ok) {
+      console.log(chalk.green(res.message));
+      process.exit(0);
+    } else {
+      console.error(chalk.red(res.message));
+      process.exit(1);
+    }
   }
 
   let autoApprove = false;
@@ -88,6 +104,7 @@ ${chalk.bold("Interactive Commands:")}
 
   const session = {
     id: randomUUID(),
+    version: pkg.version,
     provider,
     apiKey,
     model:

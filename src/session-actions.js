@@ -16,6 +16,7 @@ import { MAX_HISTORY_TURNS } from './history.js';
 import { readLimits } from './models/limits.js';
 
 export const AVAILABLE_COMMANDS = [
+  { cmd: '/update', desc: 'Обновить Duddy до последней версии' },
   { cmd: '/voice', desc: 'Голосовой ввод или авто-озвучка (/voice on/off, Ctrl+S)' },
   { cmd: '/model', desc: 'Список моделей ваших провайдеров с поиском' },
   { cmd: '/effort', desc: 'Уровень рассуждений модели: low / medium / high' },

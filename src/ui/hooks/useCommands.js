@@ -31,10 +31,12 @@ import {
 import { clearScreenToTop } from './useResizeRedraw.js';
 import { THEMES, THEME_IDS, getThemeId, setTheme } from '../../theme.js';
 import { ThemePreview } from '../ThemePreview.js';
+import { runUpdate } from '../../update.js';
 
 const h = React.createElement;
 
 const COMMAND_ALIASES = {
+  upgrade: 'update',
   v: 'voice',
   tts: 'voice',
   stt: 'voice',
@@ -538,6 +540,21 @@ export function useCommands({
       case 'voice':
         await handleVoiceCommand(arg, ctx);
         return;
+
+      case 'update': {
+        addNote('info', 'Обновление…');
+        try {
+          const res = await runUpdate();
+          if (res.ok) {
+            addNote('success', res.message);
+          } else {
+            addNote('error', res.message);
+          }
+        } catch (err) {
+          addNote('error', `Ошибка обновления: ${err.message}`);
+        }
+        return;
+      }
 
       default:
         addNote('warn', `Неизвестная команда /${cmd} — введите / для списка`);

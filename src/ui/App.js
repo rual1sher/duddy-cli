@@ -21,6 +21,7 @@ import { loadConfig } from '../config.js';
 import { fetchKeyInfo, getModelContextLength } from '../llm/modelInfo.js';
 import { nextMode } from '../modes.js';
 import { isSpeaking, stopSpeech, isVoiceAvailable } from '../voice/index.js';
+import { checkForUpdate, updateMessage } from '../update.js';
 
 const h = React.createElement;
 
@@ -111,6 +112,15 @@ export function App({ session }) {
         })
         .catch(() => {});
     }
+
+    checkForUpdate(session?.version)
+      .then(info => {
+        if (info) {
+          const m = updateMessage(info);
+          addNote(m.level, m.text);
+        }
+      })
+      .catch(() => {});
   }, [session, openLoginPicker, addNote]);
 
   useResizeRedraw(setStaticKey);
