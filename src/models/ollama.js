@@ -102,7 +102,7 @@ export async function fetchOllamaRuntimeContext(modelId) {
 export function ollamaContextWarning(promptTokens, runtimeCtx) {
   if (typeof runtimeCtx !== 'number' || runtimeCtx <= 0) return null;
   if (typeof promptTokens !== 'number' || promptTokens < runtimeCtx * 0.75) return null;
-  return `Память модели почти заполнена: запрос занял ${promptTokens} из ${runtimeCtx} токенов, следующие шаги могут не поместиться. Увеличьте окно: OLLAMA_CONTEXT_LENGTH=32768 ollama serve (или Environment="OLLAMA_CONTEXT_LENGTH=32768" через sudo systemctl edit ollama).`;
+  return `Память модели почти заполнена: запрос занял ${promptTokens} из ${runtimeCtx} токенов, следующие шаги могут не поместиться. Увеличьте память модели в настройках Ollama (OLLAMA_CONTEXT_LENGTH, например 16384) — см. README, раздел «Память локальной модели».`;
 }
 
 /**
