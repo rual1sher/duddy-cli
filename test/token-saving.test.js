@@ -259,9 +259,9 @@ test('кэш: Claude через OpenRouter просит его явно, ост�
   assert.strictEqual(openai.cache_control, undefined);
   assert.strictEqual(openai.session_id, 'sess-1');
 
-  const google = await payload('google', 'gemini-3.5-flash');
-  assert.strictEqual(google.cache_control, undefined);
-  assert.strictEqual(google.session_id, undefined);
+  const ollama = await payload('ollama', 'llama3');
+  assert.strictEqual(ollama.cache_control, undefined);
+  assert.strictEqual(ollama.session_id, undefined);
 });
 
 test('история: большие аргументы записи убираются, подпись Gemini и мелкие вызовы не трогаются', () => {
@@ -338,7 +338,7 @@ test('карта проекта работает и без файлов', async 
   assert.ok(!text.includes('Files ('));
 });
 
-test('buildProjectContext(dir, { lean: true }) ограничивает пути до 40 и обрезает AGENTS.md до 2000 символов', async () => {
+test('buildProjectContext(dir, { lean: true }) ограничивает пути до 20 и обрезает AGENTS.md до 1000 символов', async () => {
   const leanDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'duddy-lean-test-')));
   try {
     for (let i = 0; i < 50; i++) {
@@ -356,12 +356,12 @@ test('buildProjectContext(dir, { lean: true }) ограничивает пути
     assert.ok(leanCtx.includes('Large project, files per folder:'));
     const filesSection = leanCtx.split('Files (respecting .gitignore):\n')[1]?.split('\n\n')[0] || '';
     const fileLines = filesSection.split('\n').filter(Boolean);
-    assert.ok(fileLines.length <= 41, `Строк в секции файлов: ${fileLines.length}`);
+    assert.ok(fileLines.length <= 21, `Строк в секции файлов: ${fileLines.length}`);
 
     assert.ok(leanCtx.includes('...[Обрезано, полный файл: AGENTS.md]...'));
     const notesMatch = leanCtx.match(/<project_notes>\n([\s\S]*?)\n\.\.\.\[Обрезано/);
     assert.ok(notesMatch, 'Секция project_notes должна содержать обрезку');
-    assert.equal(notesMatch[1].length, 2000, 'Длина обрезанных инструкций должна быть ровно 2000 символов');
+    assert.equal(notesMatch[1].length, 1000, 'Длина обрезанных инструкций должна быть ровно 1000 символов');
   } finally {
     await fs.rm(leanDir, { recursive: true, force: true });
   }

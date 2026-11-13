@@ -514,6 +514,7 @@ test('секреты в содержимом: разные виды находя
   const samples = [
     'key: AKIAIOSFODNN7EXAMPLE',
     `sk-or-v1-${'f'.repeat(40)}`,
+    `xai-${'a'.repeat(25)}`,
     `AIza${'B'.repeat(35)}`,
     'export DB_PASSWORD="s3cr3t-Value"',
     'mysql://root:hunter2pass@db.internal/prod',

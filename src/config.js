@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { getProviderKey } from './providers.js';
+import { getProvider, getProviderKey, PROVIDERS } from './providers.js';
 
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'duddy');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -43,16 +43,25 @@ SAVING TOKENS
 - Find code with grep or glob first, then read only the lines you need with read_file start_line and max_lines. Read a whole file only when you need all of it.
 - Don't read again what is already in the conversation. Old results may be shortened: re-read only the lines you need.`;
 
+export const LOCAL_SYSTEM_PROMPT = `You are Duddy, a terminal AI assistant for developers and DevOps. You work in the user's project folder.
+
+RULES
+- Reply in the user's language (Russian if they write in Russian). Match tone. No filler ("Sure!", "Hope this helps!").
+- Do not invent facts. You have real filesystem and shell access via tools: call tools instead of just printing code.
+- Shell command question: ready-to-run command in a code block + brief notes.
+- Always read a file with read_file before editing with edit_file or overwriting with create_file. Never guess content.
+- Use edit_file for precise changes with exact old_content; create_file for new files.
+- read_file returns up to 40000 chars. Use offset or start_line to continue.
+- Use bash for tests, builds, git. Dangerous actions require user confirmation. Do not read secrets unless requested.
+- Save tokens: find files with grep or glob first, read only needed lines.`;
+
 const DEFAULT_CONFIG = {
   provider: 'openrouter',
   apiKey: '',
-  googleApiKey: '',
-  xaiApiKey: '',
   model: 'openrouter/free',
   models: {},
   reasoningEffort: 'auto',
-  temperature: 0.4,
-  voiceAutoSpeak: false
+  temperature: 0.4
 };
 
 export function loadConfig() {
@@ -75,11 +84,21 @@ export function loadConfig() {
         if ('systemPrompt' in parsed) {
           delete parsed.systemPrompt;
         }
-        return {
+        const cfg = {
           ...DEFAULT_CONFIG,
           ...parsed,
           models: { ...DEFAULT_CONFIG.models, ...(parsed.models || {}) }
         };
+        // Если провайдер задан, но отсутствует в PROVIDERS (например, удалённый xai),
+        // переключаем на openrouter в памяти, чтобы запросы с несовместимой моделью не падали
+        if (cfg.provider && !(cfg.provider in PROVIDERS)) {
+          return {
+            ...cfg,
+            provider: 'openrouter',
+            model: cfg.models?.openrouter || PROVIDERS.openrouter.defaultModel
+          };
+        }
+        return cfg;
       } catch (err) {
         // Parse error: warn once per process, then fall through to defaults
         if (!_brokenConfigWarned) {
@@ -162,13 +181,14 @@ export function getActiveApiKey(config) {
 }
 
 /**
- * Получить системный промпт для сессии с учётом провайдера (облегчённый для Ollama).
+ * Получить системный промпт для сессии с учётом провайдера (облегчённый для Ollama и локальных моделей).
  *
  * @param {object} session
  * @returns {string}
  */
 export function systemPromptFor(session) {
-  return session?.provider === 'ollama' && session?.systemPromptLean
+  const isLocal = Boolean(getProvider(session?.provider)?.local);
+  return isLocal && session?.systemPromptLean
     ? session.systemPromptLean
     : session?.systemPrompt;
 }

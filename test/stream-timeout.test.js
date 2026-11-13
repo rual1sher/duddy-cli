@@ -50,7 +50,7 @@ test('один чанк с текстом, потом зависание → rej
   await assert.rejects(
     async () => {
       await streamChatCompletion({
-        provider: 'google',
+        provider: 'openrouter',
         apiKey: 'test',
         model: 'm',
         messages: [],
@@ -74,7 +74,7 @@ test('ни одного чанка, поток висит → FIRST_CHUNK_TIMEOU
   await assert.rejects(
     async () => {
       await streamChatCompletion({
-        provider: 'google',
+        provider: 'openrouter',
         apiKey: 'test',
         model: 'm',
         messages: [],
@@ -100,7 +100,7 @@ test('чанки идут с паузой меньше лимита дольше
   });
 
   const res = await streamChatCompletion({
-    provider: 'google',
+    provider: 'openrouter',
     apiKey: 'test',
     model: 'm',
     messages: [],
@@ -124,7 +124,7 @@ test('внешний AbortController.abort() посреди потока → rej
   await assert.rejects(
     async () => {
       await streamChatCompletion({
-        provider: 'google',
+        provider: 'openrouter',
         apiKey: 'test',
         model: 'm',
         messages: [],

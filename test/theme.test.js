@@ -10,7 +10,7 @@ import {
   theme,
   paint
 } from '../src/theme.js';
-import { kittenLines } from '../src/banner.js';
+import { bannerLines } from '../src/banner.js';
 
 test('THEME_IDS содержит 4 идентификатора: ровно 2 тёмные и 2 светлые темы', () => {
   assert.strictEqual(THEME_IDS.length, 4);
@@ -48,14 +48,14 @@ test('setTheme("nope") возвращает "dark" и getThemeId() === "dark"; s
   }
 });
 
-test('результат kittenLines() отличается между dark и light при принудительном chalk.level = 3', () => {
+test('результат bannerLines({ model: \'m\', hasKey: true }) отличается между dark и light при принудительном chalk.level = 3', () => {
   const originalLevel = chalk.level;
   try {
     chalk.level = 3;
     setTheme('dark');
-    const darkLines = kittenLines();
+    const darkLines = bannerLines({ model: 'm', hasKey: true });
     setTheme('light');
-    const lightLines = kittenLines();
+    const lightLines = bannerLines({ model: 'm', hasKey: true });
     assert.notDeepStrictEqual(darkLines, lightLines);
   } finally {
     chalk.level = originalLevel;

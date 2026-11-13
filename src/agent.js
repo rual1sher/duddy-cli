@@ -1,8 +1,8 @@
 import { streamChatCompletion } from './llm/stream.js';
-import { extractTextToolCalls } from './llm/toolCalls.js';
+import { extractTextToolCalls } from './llm/textToolCalls.js';
 import { AGENT_TOOLS } from './tools/definitions.js';
 import { executeTool } from './tools/execute.js';
-import { describeToolResult } from './toolDisplay.js';
+import { describeToolResult } from './toolResultDisplay.js';
 import { compactToolResults } from './llm/compact.js';
 import { toolsForMode } from './modes.js';
 import { fetchOllamaRuntimeContext, ollamaContextWarning } from './models/ollama.js';
@@ -77,7 +77,7 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
         model: session.model,
         sessionId: session.id,
         messages,
-        tools: toolsForMode(AGENT_TOOLS, activeToolCtx.mode),
+        tools: activeToolCtx.noTools ? undefined : toolsForMode(AGENT_TOOLS, activeToolCtx.mode),
         temperature: session.temperature ?? 0.4,
         reasoningEffort: session.reasoningEffort,
         signal,
@@ -107,7 +107,7 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
     let { content, toolCalls } = streamResult;
     const { usage } = streamResult;
 
-    if (session?.provider === 'ollama' && (!toolCalls || toolCalls.length === 0) && content) {
+    if (!activeToolCtx.noTools && session?.provider === 'ollama' && (!toolCalls || toolCalls.length === 0) && content) {
       const extracted = extractTextToolCalls(content, toolsForMode(AGENT_TOOLS, activeToolCtx.mode));
       if (extracted.calls.length > 0) {
         toolCalls = extracted.calls;

@@ -196,3 +196,52 @@ test('systemPromptFor выбирает lean для ollama при наличии 
   const openrouter = { provider: 'openrouter', systemPrompt: 'full', systemPromptLean: 'lean' };
   assert.equal(systemPromptFor(openrouter), 'full');
 });
+
+test('loadConfig мигрирует удалённого или неизвестного провайдера (xai) в памяти на openrouter', () => {
+  ensureConfigDir();
+  cleanConfig();
+
+  const rawConfig1 = JSON.stringify({
+    provider: 'xai',
+    model: 'grok-4.7',
+    xaiApiKey: 'x'
+  });
+  fs.writeFileSync(CONFIG_FILE, rawConfig1, { encoding: 'utf8', mode: 0o600 });
+
+  const cfg1 = loadConfig();
+  assert.strictEqual(cfg1.provider, 'openrouter');
+  assert.strictEqual(cfg1.model, 'openrouter/free');
+  assert.strictEqual(cfg1.xaiApiKey, 'x', 'остальные поля конфига сохраняются');
+  assert.strictEqual(fs.readFileSync(CONFIG_FILE, 'utf8'), rawConfig1, 'файл на диске не должен измениться');
+
+  // Второй случай — при models.openrouter = 'some/model' модель берётся оттуда
+  const rawConfig2 = JSON.stringify({
+    provider: 'xai',
+    model: 'grok-4.7',
+    xaiApiKey: 'x',
+    models: {
+      openrouter: 'some/model'
+    }
+  });
+  fs.writeFileSync(CONFIG_FILE, rawConfig2, { encoding: 'utf8', mode: 0o600 });
+
+  const cfg2 = loadConfig();
+  assert.strictEqual(cfg2.provider, 'openrouter');
+  assert.strictEqual(cfg2.model, 'some/model');
+  assert.strictEqual(cfg2.xaiApiKey, 'x');
+  assert.strictEqual(fs.readFileSync(CONFIG_FILE, 'utf8'), rawConfig2, 'файл на диске не должен измениться');
+
+  // Случай миграции google -> openrouter
+  const rawConfigGoogle = JSON.stringify({
+    provider: 'google',
+    model: 'gemini-3.5-flash'
+  });
+  fs.writeFileSync(CONFIG_FILE, rawConfigGoogle, { encoding: 'utf8', mode: 0o600 });
+
+  const cfgGoogle = loadConfig();
+  assert.strictEqual(cfgGoogle.provider, 'openrouter');
+  assert.strictEqual(cfgGoogle.model, 'openrouter/free');
+  assert.strictEqual(fs.readFileSync(CONFIG_FILE, 'utf8'), rawConfigGoogle, 'файл на диске не должен измениться');
+
+  cleanConfig();
+});

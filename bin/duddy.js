@@ -2,18 +2,17 @@
 
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
-import { loadConfig, getActiveApiKey, DEFAULT_SYSTEM_PROMPT, systemPromptFor } from "../src/config.js";
+import { loadConfig, getActiveApiKey, DEFAULT_SYSTEM_PROMPT, LOCAL_SYSTEM_PROMPT, systemPromptFor } from "../src/config.js";
 import { getProvider } from "../src/providers.js";
 import { startTui } from "../src/ui/index.js";
 import { runAgentTurn } from "../src/agent.js";
 import { handleModelError, errorText } from "../src/errors.js";
 import { createPlainRenderer } from "../src/plainRenderer.js";
-import { formatDuration, formatTurnUsage } from "../src/formatter.js";
+import { formatDuration } from "../src/formatter.js";
 import { buildProjectContext } from "../src/projectContext.js";
 import chalk from "chalk";
 import { setTheme, paint } from "../src/theme.js";
-import { isVoiceAvailable, speak } from "../src/voice/index.js";
-import { runUpdate } from "../src/update.js";
+import { runUpdate } from "../src/updateInstall.js";
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -45,18 +44,16 @@ ${chalk.bold("Usage:")}
   ${paint('success')('cat error.log | duddy "explain"')} Analyze piped input
 
 ${chalk.bold("Options:")}
-  ${paint('warning')("-s, --speak")} Озвучивать ответы модели голосом (TTS)
   ${paint('warning')("-y, --yes")}   Automatically confirm all tool actions without prompt
   ${paint('warning')("-h, --help")}  Show help
   ${paint('warning')("-v, --version")} Show version
 
 ${chalk.bold("Interactive Commands:")}
   ${paint('warning')("/update")}  Обновить Duddy до последней версии
-  ${paint('warning')("/voice")}   Голосовой ввод или авто-озвучка (/voice on/off, Ctrl+S)
   ${paint('warning')("/model")}   Список моделей ваших провайдеров с поиском (включая локальную Ollama)
   ${paint('warning')("/effort")}  Set reasoning level (auto, low, medium, high)
   ${paint('warning')("/theme")}   Выбрать цветовую тему
-  ${paint('warning')("/login")}   Login: OpenRouter, Google AI Studio or xAI
+  ${paint('warning')("/login")}   Login: OpenRouter or local Ollama
   ${paint('warning')("/clear")}   Clear conversation context
   ${paint('warning')("/context")} Show context window and history
   ${paint('warning')("/usage")}   Show model limits and token spend
@@ -85,13 +82,10 @@ ${chalk.bold("Interactive Commands:")}
   }
 
   let autoApprove = false;
-  let autoSpeak = Boolean(config.voiceAutoSpeak);
   const args = [];
   for (const arg of rawArgs) {
     if (arg === "--yes" || arg === "-y") {
       autoApprove = true;
-    } else if (arg === "--speak" || arg === "-s") {
-      autoSpeak = true;
     } else {
       args.push(arg);
     }
@@ -114,10 +108,9 @@ ${chalk.bold("Interactive Commands:")}
     reasoningEffort: config.reasoningEffort || "auto",
     temperature: config.temperature ?? 0.4,
     systemPrompt: DEFAULT_SYSTEM_PROMPT + fullContext,
-    systemPromptLean: DEFAULT_SYSTEM_PROMPT + leanContext,
+    systemPromptLean: LOCAL_SYSTEM_PROMPT + leanContext,
     messages: [],
     autoApprove,
-    autoSpeak,
   };
 
   // Check if data is being piped via stdin (e.g. cat file.log | duddy "explain")
@@ -145,11 +138,14 @@ ${chalk.bold("Interactive Commands:")}
     }
 
     const interactive = process.stdin.isTTY === true;
+    const isPipe = !process.stdin.isTTY && Boolean(pipedData.trim());
+    const isLocal = Boolean(getProvider(session.provider)?.local);
     const renderer = createPlainRenderer(session, { interactive });
     const toolCtx = {
       autoApprove: !!session.autoApprove,
       allowCommands: !!session.autoApprove,
       canPrompt: interactive,
+      noTools: isPipe && isLocal,
       ...renderer.toolCtxExtras,
     };
 
@@ -169,7 +165,7 @@ ${chalk.bold("Interactive Commands:")}
     process.on("SIGINT", onSigint);
 
     try {
-      const { turnUsage, elapsedMs, finalText } = await runAgentTurn({
+      const { elapsedMs, finalText } = await runAgentTurn({
         session,
         messages: messagesToSend,
         toolCtx,
@@ -178,21 +174,11 @@ ${chalk.bold("Interactive Commands:")}
       });
 
       const durationStr = formatDuration(elapsedMs ?? Date.now() - startTime);
-      const usageText = formatTurnUsage(turnUsage);
-      const tokenInfo = usageText ? ` · ${usageText}` : "";
       console.log(
         paint('border')("╰─ ") +
           paint('success')("✔ Готово") +
-          paint('subtle')(` · ${durationStr}${tokenInfo}\n`),
+          paint('subtle')(` · ${durationStr}\n`),
       );
-
-      if (session.autoSpeak) {
-        if (isVoiceAvailable()) {
-          await speak(finalText);
-        } else {
-          console.error(paint('warning')('Голос не установлен — запустите duddy и выполните /voice install'));
-        }
-      }
     } catch (err) {
       if (controller.signal.aborted || err?.name === "AbortError") {
         console.error(paint('warning')("\nОстановлено"));

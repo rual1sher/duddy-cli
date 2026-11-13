@@ -24,11 +24,14 @@ const { selectModel, connectOllama } = await import('../src/session-actions.js')
 const { getModelContextLength } = await import('../src/llm/modelInfo.js');
 const { errorHint } = await import('../src/errors.js');
 const { runAgentTurn } = await import('../src/agent.js');
+const { streamChatCompletion } = await import('../src/llm/stream.js');
+const { clearCatalogCache } = await import('../src/models/catalog.js');
 
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  clearCatalogCache('ollama');
 });
 
 test('ollamaHost нормализует OLLAMA_HOST как сама Ollama', () => {
@@ -361,4 +364,54 @@ test('connectOllama: при моке с моделью → ok:true, session.prov
   assert.equal(session.provider, 'ollama');
   assert.equal(session.model, 'llama3:8b');
   assert.match(res.message, /Выбран локальный провайдер Ollama · модель: llama3:8b/);
+});
+
+test('при пустом каталоге streamChatCompletion догружает capabilities и выставляет reasoning_effort: none', async () => {
+  clearCatalogCache('ollama');
+  let capturedBody = null;
+
+  globalThis.fetch = async (url, init) => {
+    const urlStr = String(url);
+    if (urlStr.endsWith('/api/tags')) {
+      return new Response(JSON.stringify({
+        models: [
+          {
+            name: 'deepseek-r1:8b',
+            capabilities: ['completion', 'tools', 'thinking']
+          }
+        ]
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      });
+    }
+
+    if (urlStr.includes('/chat/completions')) {
+      capturedBody = JSON.parse(init?.body || '{}');
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Привет' } }] })}\n\n`));
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        }
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' }
+      });
+    }
+
+    throw new Error(`Unexpected fetch to ${urlStr}`);
+  };
+
+  await streamChatCompletion({
+    provider: 'ollama',
+    apiKey: 'ollama',
+    model: 'deepseek-r1:8b',
+    messages: [{ role: 'user', content: 'test' }]
+  });
+
+  assert.ok(capturedBody, 'Запрос к /chat/completions должен быть выполнен');
+  assert.strictEqual(capturedBody.reasoning_effort, 'none');
 });

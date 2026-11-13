@@ -1,5 +1,5 @@
 /**
- * @fileoverview Провайдеры AI для Duddy CLI (OpenRouter, Google AI Studio, xAI и локальная Ollama)
+ * @fileoverview Провайдеры AI для Duddy CLI (OpenRouter и локальная Ollama)
  */
 
 /**
@@ -62,26 +62,6 @@ export const PROVIDERS = {
     keyUrl: 'https://openrouter.ai/keys',
     defaultModel: 'openrouter/free'
   },
-  google: {
-    id: 'google',
-    title: 'Google AI Studio',
-    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-    headers: {},
-    keyField: 'googleApiKey',
-    envVars: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
-    keyUrl: 'https://aistudio.google.com/apikey',
-    defaultModel: 'gemini-3.5-flash'
-  },
-  xai: {
-    id: 'xai',
-    title: 'xAI',
-    baseURL: 'https://api.x.ai/v1',
-    headers: {},
-    keyField: 'xaiApiKey',
-    envVars: ['XAI_API_KEY'],
-    keyUrl: 'https://console.x.ai',
-    defaultModel: 'grok-4.7'
-  },
   ollama: {
     id: 'ollama',
     title: 'Ollama',
@@ -130,24 +110,17 @@ export function getProviderKey(providerId, config = {}) {
 
 /**
  * Автоматически определить провайдера по ID модели.
- * Возвращает 'google', если id начинается с 'gemini-' или 'gemma-' и не содержит '/',
- * 'xai', если id начинается с 'grok-' и не содержит '/',
- * иначе возвращает 'openrouter'. Модели Ollama по имени не определить
- * (id вида llama3.2:3b или user/model:tag), их провайдер берётся из каталога.
+ * Возвращает 'ollama' для префиксов 'ollama/' и 'ollama:', иначе 'openrouter'.
+ * Модели Ollama по имени не определить (id вида llama3.2:3b или user/model:tag),
+ * их провайдер берётся из каталога.
  *
  * @param {string} modelId - Идентификатор модели
- * @returns {'google' | 'xai' | 'openrouter'}
+ * @returns {'ollama' | 'openrouter'}
  */
 export function detectProviderForModel(modelId = '') {
   const m = String(modelId).toLowerCase().trim();
   if (m === 'ollama' || m.startsWith('ollama/') || m.startsWith('ollama:')) {
     return 'ollama';
-  }
-  if ((m.startsWith('gemini-') || m.startsWith('gemma-')) && !m.includes('/')) {
-    return 'google';
-  }
-  if (m.startsWith('grok-') && !m.includes('/')) {
-    return 'xai';
   }
   return 'openrouter';
 }

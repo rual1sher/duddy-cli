@@ -9,9 +9,9 @@ import { scanSecrets } from './tools/secretScan.js';
 
 const INSTRUCTION_FILES = ['AGENTS.md', 'agents.md', 'CLAUDE.md'];
 const MAX_INSTRUCTION_CHARS = 6000;
-const LEAN_MAX_INSTRUCTION_CHARS = 2000;
+const LEAN_MAX_INSTRUCTION_CHARS = 1000;
 const MAX_LISTED_PATHS = 150;
-const LEAN_MAX_LISTED_PATHS = 40;
+const LEAN_MAX_LISTED_PATHS = 20;
 const MAX_SCANNED_PATHS = 2000;
 const LIST_TIMEOUT_MS = 2000;
 

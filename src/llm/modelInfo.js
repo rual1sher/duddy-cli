@@ -28,8 +28,6 @@ export async function fetchKeyInfo(apiKey, provider = 'openrouter') {
   }
 }
 
-const googleContextCache = {};
-const xaiContextCache = {};
 const ollamaContextCache = {};
 let modelsContextCache = null;
 
@@ -38,35 +36,10 @@ let modelsContextCache = null;
  *
  * @param {string} [modelId=''] - Идентификатор модели
  * @param {string} [provider='openrouter'] - Идентификатор провайдера
- * @param {string} [apiKey=''] - API-ключ (необходим для запроса лимитов Google)
+ * @param {string} [apiKey=''] - API-ключ
  * @returns {Promise<number>}
  */
 export async function getModelContextLength(modelId = '', provider = 'openrouter', apiKey = '') {
-  if (provider === 'google') {
-    if (googleContextCache[modelId]) {
-      return googleContextCache[modelId];
-    }
-    if (apiKey) {
-      try {
-        const cleanId = modelId.replace(/^models\//, '');
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanId)}`, {
-          headers: {
-            'x-goog-api-key': apiKey
-          },
-          signal: AbortSignal.timeout(3000)
-        });
-        if (res.ok) {
-          const json = await res.json();
-          if (json && typeof json.inputTokenLimit === 'number') {
-            googleContextCache[modelId] = json.inputTokenLimit;
-            return json.inputTokenLimit;
-          }
-        }
-      } catch {}
-    }
-    return 1000000;
-  }
-
   if (provider === 'ollama') {
     if (ollamaContextCache[modelId]) {
       return ollamaContextCache[modelId];
@@ -90,30 +63,6 @@ export async function getModelContextLength(modelId = '', provider = 'openrouter
       }
     } catch {}
     return 8192;
-  }
-
-  if (provider === 'xai') {
-    if (xaiContextCache[modelId]) {
-      return xaiContextCache[modelId];
-    }
-    if (apiKey) {
-      try {
-        const res = await fetch(`https://api.x.ai/v1/models/${encodeURIComponent(modelId)}`, {
-          headers: {
-            Authorization: `Bearer ${apiKey}`
-          },
-          signal: AbortSignal.timeout(3000)
-        });
-        if (res.ok) {
-          const json = await res.json();
-          if (json && typeof json.context_length === 'number') {
-            xaiContextCache[modelId] = json.context_length;
-            return json.context_length;
-          }
-        }
-      } catch {}
-    }
-    return 500000;
   }
 
   if (!modelsContextCache) {

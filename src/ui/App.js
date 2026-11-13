@@ -14,14 +14,17 @@ import { useLiveOutput } from './hooks/useLiveOutput.js';
 import { useToolContext } from './hooks/useToolContext.js';
 import { useLoginFlows } from './hooks/useLoginFlows.js';
 import { useResizeRedraw } from './hooks/useResizeRedraw.js';
-import { useCommands, openThemePicker } from './hooks/useCommands.js';
+import { useCommands } from './hooks/useCommands.js';
+import { openThemePicker } from './commands/themeCommand.js';
 import { useAgentTurn } from './hooks/useAgentTurn.js';
 import { listModels, findModel } from '../models/catalog.js';
 import { loadConfig } from '../config.js';
 import { fetchKeyInfo, getModelContextLength } from '../llm/modelInfo.js';
 import { nextMode } from '../modes.js';
-import { isSpeaking, stopSpeech, isVoiceAvailable } from '../voice/index.js';
 import { checkForUpdate, updateMessage } from '../update.js';
+import { commandsFor } from '../commands.js';
+import { warmupLocalModel } from '../llm/warmup.js';
+import { getProvider } from '../providers.js';
 
 const h = React.createElement;
 
@@ -75,16 +78,14 @@ export function App({ session }) {
   });
 
   const {
-    startGoogleLogin,
-    startXaiLogin,
     startOpenRouterBrowserLogin,
     openLoginPicker
   } = useLoginFlows({ session, setOverlay, addNote });
 
   // Фоновая загрузка метаданных при старте
   useEffect(() => {
-    if (session.autoSpeak && !isVoiceAvailable()) {
-      addNote('warn', 'Авто-озвучка включена, но голос не установлен — выполните /voice install');
+    if (getProvider(session?.provider)?.local) {
+      warmupLocalModel(session, { mode });
     }
     if (!loadConfig().theme) {
       openThemePicker(
@@ -163,6 +164,7 @@ export function App({ session }) {
 
   const { handleCommand } = useCommands({
     session,
+    mode,
     app,
     setTranscript,
     addNote,
@@ -171,8 +173,6 @@ export function App({ session }) {
     queueRef,
     setQueued,
     toolCtxRef,
-    startGoogleLogin,
-    startXaiLogin,
     startOpenRouterBrowserLogin,
     openLoginPicker,
     handleSend,
@@ -189,34 +189,8 @@ export function App({ session }) {
     return true;
   }, [overlay]);
 
-  // Глобальный перехват клавиатуры (Ctrl+C, Esc, Shift+Tab, Ctrl+S)
+  // Глобальный перехват клавиатуры (Ctrl+C, Esc, Shift+Tab)
   useInput((input, key) => {
-    if (isSpeaking() && (key.escape || (key.ctrl && input === 's'))) {
-      stopSpeech();
-      return;
-    }
-
-    if (key.escape && overlay?.kind === 'recording') {
-      overlay.onCancel?.();
-      return;
-    }
-
-    if (key.ctrl && input === 's') {
-      if (overlay?.kind === 'recording') {
-        overlay.onResolve?.();
-        return;
-      }
-      if (!overlay && status !== 'working') {
-        handleCommandRef.current?.('/voice');
-        return;
-      }
-    }
-
-    if (key.return && overlay?.kind === 'recording') {
-      overlay.onResolve?.();
-      return;
-    }
-
     if (key.tab && key.shift && !overlay) {
       setMode(nextMode(mode));
       return;
@@ -286,6 +260,7 @@ export function App({ session }) {
         draftKey: draft.key,
         overlayOpen: Boolean(overlay),
         imagesSupported: findModel(session.model)?.vision !== false,
+        commands: commandsFor(session),
         onSend: handleSend
       }),
       h(StatusBar, {

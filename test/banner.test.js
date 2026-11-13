@@ -1,58 +1,55 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { stripVTControlCharacters } from 'node:util';
-import { KITTEN_ROWS, kittenLines, bannerLines } from '../src/banner.js';
+import { bannerLines, HINT } from '../src/banner.js';
 
-test('kittenLines() возвращает 3 строки, каждая по 7 видимых колонок, равные точному образцу', () => {
-  const lines = kittenLines();
-  assert.strictEqual(lines.length, 3);
-  for (const line of lines) {
-    const stripped = stripVTControlCharacters(line);
-    assert.strictEqual(stripped.length, 7);
-  }
-  const stripped = lines.map(stripVTControlCharacters);
-  assert.deepStrictEqual(stripped, ['█▖   ▗█', '█▀███▀█', '▜██▄██▛']);
-});
-
-test('kittenLines({ rise: 6 }) возвращает 3 строки из 7 пробелов', () => {
-  const lines = kittenLines({ rise: 6 });
-  assert.strictEqual(lines.length, 3);
-  for (const line of lines) {
-    const stripped = stripVTControlCharacters(line);
-    assert.strictEqual(stripped, ' '.repeat(7));
-  }
-});
-
-test('kittenLines({ twitch: true }) отличается от kittenLines() по первой строке', () => {
-  const defaultLine0 = stripVTControlCharacters(kittenLines()[0]);
-  const twitchLine0 = stripVTControlCharacters(kittenLines({ twitch: true })[0]);
-  assert.notStrictEqual(twitchLine0, defaultLine0);
-});
-
-test('kittenLines({ blink: true }) отличается от kittenLines() по строке 1', () => {
-  const defaultLine1 = stripVTControlCharacters(kittenLines()[1]);
-  const blinkLine1 = stripVTControlCharacters(kittenLines({ blink: true })[1]);
-  assert.notStrictEqual(blinkLine1, defaultLine1);
-});
-
-test('bannerLines({ model: "m1", hasKey: true }) содержит 5 строк с Duddy и m1', () => {
+test('bannerLines возвращает 3 строки', () => {
   const lines = bannerLines({ model: 'm1', hasKey: true });
-  assert.strictEqual(lines.length, 5);
-  const strippedText = lines.map(stripVTControlCharacters).join('\n');
-  assert.ok(strippedText.includes('Duddy'));
-  assert.ok(strippedText.includes('m1'));
+  assert.strictEqual(lines.length, 3);
+  assert.strictEqual(lines[0], '');
 });
 
-test('bannerLines(..., { reveal: 0 }) содержит 5 строк и не содержит Duddy в выводе', () => {
-  const lines = bannerLines({ model: 'm1', hasKey: true }, { reveal: 0 });
-  assert.strictEqual(lines.length, 5);
-  const strippedText = lines.map(stripVTControlCharacters).join('\n');
-  assert.ok(!strippedText.includes('Duddy'));
+test('bannerLines с hasKey: true — строка 2 содержит "Duddy" и модель', () => {
+  const lines = bannerLines({ model: 'test-model', hasKey: true });
+  const line2 = stripVTControlCharacters(lines[1]);
+  assert.ok(line2.includes('Duddy'), `Строка 2 должна содержать Duddy: "${line2}"`);
+  assert.ok(line2.includes('test-model'), `Строка 2 должна содержать модель: "${line2}"`);
 });
 
-test('KITTEN_ROWS экспортирует массив из 6 строк по 14 символов', () => {
-  assert.strictEqual(KITTEN_ROWS.length, 6);
-  for (const row of KITTEN_ROWS) {
-    assert.strictEqual(row.length, 14);
+test('bannerLines с hasKey: false — строка 2 содержит "/login"', () => {
+  const lines = bannerLines({ model: 'test-model', hasKey: false });
+  const line2 = stripVTControlCharacters(lines[1]);
+  assert.ok(line2.includes('/login'), `Строка 2 должна содержать /login: "${line2}"`);
+});
+
+test('bannerLines — строка 3 содержит "/ — команды"', () => {
+  const lines = bannerLines({ model: 'test-model', hasKey: true });
+  const line3 = stripVTControlCharacters(lines[2]);
+  assert.ok(line3.includes('/ — команды'), `Строка 3 должна содержать "/ — команды": "${line3}"`);
+});
+
+test('bannerLines при узком терминале (cols=40) не переносит строки, при cols=120 содержит подсказку', () => {
+  const origCols = process.stdout.columns;
+  try {
+    process.stdout.columns = 40;
+    const longCwd = '/var/log/very/deeply/nested/directory/structure/that/exceeds/the/terminal/width/project';
+    const narrowLines = bannerLines({ cwd: longCwd, model: 'test-model', hasKey: true });
+    assert.strictEqual(narrowLines.length, 3);
+    for (const line of narrowLines) {
+      const visible = stripVTControlCharacters(line);
+      assert.ok(
+        visible.length <= 40,
+        `Видимая длина строки (${visible.length}) должна быть <= 40: "${visible}"`
+      );
+    }
+    const narrowLine3 = stripVTControlCharacters(narrowLines[2]);
+    assert.ok(!narrowLine3.includes(HINT), 'При cols=40 подсказка не должна выводиться');
+
+    process.stdout.columns = 120;
+    const wideLines = bannerLines({ cwd: longCwd, model: 'test-model', hasKey: true });
+    const wideLine3 = stripVTControlCharacters(wideLines[2]);
+    assert.ok(wideLine3.includes(HINT), 'При cols=120 строка 3 должна содержать подсказку');
+  } finally {
+    process.stdout.columns = origCols;
   }
 });

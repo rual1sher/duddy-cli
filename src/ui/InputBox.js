@@ -3,18 +3,13 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Box, Text, useInput, usePaste } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
-import { AVAILABLE_COMMANDS } from '../session-actions.js';
 import { theme } from '../theme.js';
-import {
-  readClipboardImage,
-  parseImagePaths,
-  loadImageFile,
-  formatBytes,
-  removeBrokenLabels,
-  MAX_IMAGES_PER_MESSAGE
-} from '../images.js';
+import { formatBytes } from '../images.js';
+import { useInputHistory } from './hooks/useInputHistory.js';
+import { useAttachments } from './hooks/useAttachments.js';
+import { CommandMenu } from './CommandMenu.js';
 
 const h = React.createElement;
 
@@ -41,7 +36,8 @@ function InputKeys({ onInput }) {
  * @param {number} [props.draftKey=0] - Ключ обновления черновика
  * @param {boolean} [props.overlayOpen=false] - Открыт ли оверлей (селектор, подтверждение и т.д.)
  * @param {boolean} [props.imagesSupported=true] - Поддерживает ли текущая модель изображения
- * @param {(text: string, images?: Array<{ mime: string, data: Buffer }>) => void} props.onSend - Колбэк отправки введённого текста и вложений
+ * @param {Array<{ cmd: string, desc: string }>} [props.commands=[]] - Доступные слеш-команды
+ * @param {(text: string, images?: Array<{ mime: string, data: Buffer }>) => void} props.onSend - Колбэк отправки
  * @returns {React.ReactElement|null}
  */
 export function InputBox({
@@ -51,22 +47,14 @@ export function InputBox({
   draftKey = 0,
   overlayOpen = false,
   imagesSupported = true,
+  commands = [],
   onSend
 }) {
   const t = theme();
   const [value, setValue] = useState('');
   const [commandIndex, setCommandIndex] = useState(0);
-  const [attachments, setAttachments] = useState([]);
-  const [notice, setNotice] = useState(null);
   const [inputKey, setInputKey] = useState(0);
-
-  const historyRef = useRef([]);
-  const historyIndexRef = useRef(-1);
-  const tempInputRef = useRef('');
-  const attachmentCounterRef = useRef(0);
   const prevValueRef = useRef('');
-  const attachmentsRef = useRef(attachments);
-  attachmentsRef.current = attachments;
 
   // TextInput двигает курсор только при своём вводе, смена key пересоздаёт его с курсором в конце
   const setValueAtEnd = (next) => {
@@ -74,9 +62,26 @@ export function InputBox({
     setInputKey(k => k + 1);
   };
 
+  const {
+    navigateUp,
+    navigateDown,
+    pushHistory,
+    resetHistoryIndex
+  } = useInputHistory({ setValueAtEnd });
+
+  const {
+    attachments,
+    notice,
+    setNotice,
+    cleanLabels,
+    pasteClipboardImage,
+    resetAttachments,
+    getImagesForSubmit
+  } = useAttachments({ overlayOpen, setValueAtEnd });
+
   const isCommandMode = value.startsWith('/') && !value.includes(' ');
   const filteredCommands = isCommandMode
-    ? AVAILABLE_COMMANDS.filter(c => c.cmd.startsWith(value))
+    ? commands.filter(c => c.cmd.startsWith(value))
     : [];
 
   useEffect(() => {
@@ -86,66 +91,19 @@ export function InputBox({
   useEffect(() => {
     if (draftKey > 0) {
       setValueAtEnd(prev => (prev ? `${draft} ${prev}` : draft));
-      historyIndexRef.current = -1;
+      resetHistoryIndex();
     }
   }, [draftKey, draft]);
 
   const handleInputChange = (next) => {
     prevValueRef.current = value;
-    const cleaned = removeBrokenLabels(value, next, attachmentsRef.current.map(att => att.label));
+    const cleaned = cleanLabels(value, next);
     if (cleaned !== next) {
       setValueAtEnd(cleaned);
     } else {
       setValue(next);
     }
-    if (notice) {
-      setNotice(null);
-    }
-    // Подпись стёрта из текста — вложение не отправится, убираем его из списка и из лимита
-    const kept = attachmentsRef.current.filter(att => cleaned.includes(att.label));
-    if (kept.length !== attachmentsRef.current.length) {
-      setAttachments(kept);
-      if (kept.length === 0) {
-        attachmentCounterRef.current = 0;
-      }
-    }
   };
-
-  usePaste((pasted) => {
-    const rawText = typeof pasted === 'string' ? pasted : pasted?.text || '';
-    if (!rawText) return;
-
-    const imagePaths = parseImagePaths(rawText);
-    if (imagePaths) {
-      if (notice) setNotice(null);
-      try {
-        if (attachmentsRef.current.length + imagePaths.length > MAX_IMAGES_PER_MESSAGE) {
-          throw new Error(`Нельзя прикрепить больше ${MAX_IMAGES_PER_MESSAGE} изображений`);
-        }
-        const loaded = imagePaths.map(p => loadImageFile(p));
-        const newAttachments = [];
-        for (const img of loaded) {
-          attachmentCounterRef.current += 1;
-          const nextN = attachmentCounterRef.current;
-          const label = `[Изображение #${nextN}]`;
-          newAttachments.push({ n: nextN, mime: img.mime, data: img.data, label });
-        }
-        setAttachments(prev => [...prev, ...newAttachments]);
-        const labelsStr = newAttachments.map(a => a.label).join(' ');
-        setValueAtEnd(prev => {
-          if (!prev) return labelsStr;
-          if (prev.endsWith(' ')) return `${prev}${labelsStr}`;
-          return `${prev} ${labelsStr}`;
-        });
-      } catch (err) {
-        setNotice(err.message);
-      }
-      return;
-    }
-
-    const sanitized = rawText.replace(/\r?\n/g, ' ');
-    setValueAtEnd(prev => prev + sanitized);
-  }, { isActive: !overlayOpen });
 
   const handleKey = (input, key) => {
     if (key.escape) {
@@ -154,10 +112,8 @@ export function InputBox({
       }
       setValue('');
       setCommandIndex(0);
-      historyIndexRef.current = -1;
-      setAttachments([]);
-      attachmentCounterRef.current = 0;
-      setNotice(null);
+      resetHistoryIndex();
+      resetAttachments();
       return;
     }
 
@@ -168,41 +124,7 @@ export function InputBox({
 
     if (key.ctrl && input === 'v') {
       setValue(prevValueRef.current);
-
-      if (attachmentsRef.current.length >= MAX_IMAGES_PER_MESSAGE) {
-        setNotice(`Нельзя прикрепить больше ${MAX_IMAGES_PER_MESSAGE} изображений`);
-        return;
-      }
-
-      readClipboardImage()
-        .then((img) => {
-          if (!img) {
-            setNotice('В буфере нет изображения (текст вставляется Ctrl+Shift+V)');
-            return;
-          }
-
-          if (attachmentsRef.current.length >= MAX_IMAGES_PER_MESSAGE) {
-            setNotice(`Нельзя прикрепить больше ${MAX_IMAGES_PER_MESSAGE} изображений`);
-            return;
-          }
-
-          attachmentCounterRef.current += 1;
-          const nextN = attachmentCounterRef.current;
-          const label = `[Изображение #${nextN}]`;
-
-          setAttachments(prev => [...prev, { n: nextN, mime: img.mime, data: img.data, label }]);
-          setNotice(null);
-
-          setValueAtEnd(prev => {
-            if (!prev) return label;
-            if (prev.endsWith(' ')) return `${prev}${label}`;
-            return `${prev} ${label}`;
-          });
-        })
-        .catch((err) => {
-          setNotice(err.message);
-        });
-
+      pasteClipboardImage();
       return;
     }
 
@@ -221,31 +143,12 @@ export function InputBox({
         return;
       }
     } else {
-      // Навигация по истории сообщений в shell-стиле
       if (key.upArrow) {
-        const hist = historyRef.current;
-        if (hist.length > 0) {
-          if (historyIndexRef.current === -1) {
-            tempInputRef.current = value;
-          }
-          const nextIdx = historyIndexRef.current + 1;
-          if (nextIdx < hist.length) {
-            historyIndexRef.current = nextIdx;
-            setValueAtEnd(hist[hist.length - 1 - nextIdx]);
-          }
-        }
+        navigateUp(value);
         return;
       }
       if (key.downArrow) {
-        const hist = historyRef.current;
-        if (historyIndexRef.current > 0) {
-          const nextIdx = historyIndexRef.current - 1;
-          historyIndexRef.current = nextIdx;
-          setValueAtEnd(hist[hist.length - 1 - nextIdx]);
-        } else if (historyIndexRef.current === 0) {
-          historyIndexRef.current = -1;
-          setValueAtEnd(tempInputRef.current);
-        }
+        navigateDown();
         return;
       }
     }
@@ -263,27 +166,14 @@ export function InputBox({
     const trimmed = finalValue.trim();
     if (!trimmed) return;
 
-    const activeAttachments = attachments.filter(att => finalValue.includes(att.label));
-    const images = activeAttachments.map(att => ({ mime: att.mime, data: att.data }));
-
-    if (images.length > 0 && imagesSupported === false) {
-      setNotice('Текущая модель не принимает изображения — выберите другую через /model');
-      return;
-    }
-
-    if (images.length > 0 && busy) {
-      setNotice('Изображение можно отправить, когда ответ закончится');
-      return;
-    }
+    const images = getImagesForSubmit(finalValue, { imagesSupported, busy });
+    if (images === null) return;
 
     setNotice(null);
-    historyRef.current.push(trimmed);
-    historyIndexRef.current = -1;
-    tempInputRef.current = '';
+    pushHistory(trimmed);
     setValue('');
     setCommandIndex(0);
-    setAttachments([]);
-    attachmentCounterRef.current = 0;
+    resetAttachments();
 
     if (typeof onSend === 'function') {
       onSend(trimmed, images);
@@ -354,31 +244,7 @@ export function InputBox({
         )
       : null,
     isCommandMode
-      ? h(
-          Box,
-          { flexDirection: 'column', paddingLeft: 1 },
-          filteredCommands.length > 0
-            ? filteredCommands.map((item, idx) => {
-                const isSelected = idx === commandIndex;
-                if (isSelected) {
-                  return h(
-                    Box,
-                    { key: item.cmd, flexDirection: 'row' },
-                    h(Text, { color: t.accent }, '❯ '),
-                    h(Text, { bold: true, color: t.accent }, item.cmd.padEnd(10) + '  '),
-                    h(Text, { color: t.muted }, item.desc)
-                  );
-                }
-                return h(
-                  Box,
-                  { key: item.cmd, flexDirection: 'row' },
-                  h(Text, null, '  '),
-                  h(Text, { color: t.subtle }, item.cmd.padEnd(10) + '  '),
-                  h(Text, { color: t.subtle, dimColor: true }, item.desc)
-                );
-              })
-            : h(Text, { color: t.subtle, dimColor: true }, '  нет такой команды')
-        )
+      ? h(CommandMenu, { filteredCommands, commandIndex })
       : null
   );
 }

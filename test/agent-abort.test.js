@@ -62,7 +62,7 @@ test('отмена после первого вызова инструмента
     }));
   };
 
-  const session = { provider: 'google', apiKey: 'test', model: 'm' };
+  const session = { provider: 'openrouter', apiKey: 'test', model: 'm' };
   const toolCtx = { autoApprove: true, canPrompt: false };
   let toolResultCount = 0;
 
@@ -141,7 +141,7 @@ test('обрыв fetch-потока после текстового чанка �
     }));
   };
 
-  const session = { provider: 'google', apiKey: 'test', model: 'm' };
+  const session = { provider: 'openrouter', apiKey: 'test', model: 'm' };
   const toolCtx = { autoApprove: true, canPrompt: false };
 
   await assert.rejects(
@@ -162,3 +162,47 @@ test('обрыв fetch-потока после текстового чанка �
     }
   );
 });
+
+test('при toolCtx.noTools запрос к модели уходит без поля tools', async () => {
+  let capturedBody = null;
+  const encoder = new TextEncoder();
+  globalThis.fetch = (url, init) => {
+    if (init?.body) {
+      capturedBody = JSON.parse(init.body);
+    }
+    const stream = new ReadableStream({
+      start(ctrl) {
+        const chunk = {
+          choices: [
+            {
+              delta: {
+                content: 'Ответ без инструментов'
+              }
+            }
+          ]
+        };
+        ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+        ctrl.enqueue(encoder.encode('data: [DONE]\n\n'));
+        ctrl.close();
+      }
+    });
+
+    return Promise.resolve(new Response(stream, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' }
+    }));
+  };
+
+  const session = { provider: 'ollama', apiKey: 'ollama', model: 'llama3.2' };
+  const toolCtx = { autoApprove: true, canPrompt: false, noTools: true };
+  const res = await runAgentTurn({
+    session,
+    messages: [{ role: 'user', content: 'Привет' }],
+    toolCtx
+  });
+
+  assert.strictEqual(res.finalText, 'Ответ без инструментов');
+  assert.ok(capturedBody);
+  assert.strictEqual(capturedBody.tools, undefined);
+});
+

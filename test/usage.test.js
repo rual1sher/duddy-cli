@@ -32,9 +32,12 @@ const {
 
 const {
   usageLines,
-  contextLines,
   openRouterLimitLines
-} = await import('../src/session-actions.js');
+} = await import('../src/usageReport.js');
+
+const {
+  contextLines
+} = await import('../src/contextReport.js');
 
 const {
   catalogCache,
@@ -53,29 +56,29 @@ beforeEach(() => {
 
 function createSession(overrides = {}) {
   return {
-    provider: 'google',
-    model: 'gemini-x',
+    provider: 'openrouter',
+    model: 'model-x',
     apiKey: 'k',
     contextLength: 1000,
     messages: [{ role: 'user', content: 'a' }],
     lastUsage: { total_tokens: 100 },
-    modelUsage: { 'gemini-x': { totalTokens: 500 } },
+    modelUsage: { 'model-x': { totalTokens: 500 } },
     totalTokens: 1500,
     ...overrides
   };
 }
 
 test('1. recordRequest дважды: requests 2, tokens сумма; затем запись day 2000-01-01 и requests 1', () => {
-  recordRequest('google', 'gemini-x', { total_tokens: 100 });
-  recordRequest('google', 'gemini-x', { total_tokens: 250 });
+  recordRequest('openrouter', 'model-x', { total_tokens: 100 });
+  recordRequest('openrouter', 'model-x', { total_tokens: 250 });
 
   let limits = readLimits();
-  assert.strictEqual(limits.models['google:gemini-x'].requests, 2);
-  assert.strictEqual(limits.models['google:gemini-x'].tokens, 350);
+  assert.strictEqual(limits.models['openrouter:model-x'].requests, 2);
+  assert.strictEqual(limits.models['openrouter:model-x'].tokens, 350);
 
   writeLimits({
     models: {
-      'google:gemini-x': {
+      'openrouter:model-x': {
         day: '2000-01-01',
         requests: 9,
         tokens: 900
@@ -83,29 +86,29 @@ test('1. recordRequest дважды: requests 2, tokens сумма; затем �
     }
   });
 
-  recordRequest('google', 'gemini-x', { total_tokens: 50 });
+  recordRequest('openrouter', 'model-x', { total_tokens: 50 });
   limits = readLimits();
-  assert.strictEqual(limits.models['google:gemini-x'].requests, 1);
-  assert.strictEqual(limits.models['google:gemini-x'].tokens, 50);
+  assert.strictEqual(limits.models['openrouter:model-x'].requests, 1);
+  assert.strictEqual(limits.models['openrouter:model-x'].tokens, 50);
 });
 
 test('2. recordRequest с rateLimits сохраняет rate с полем at, а следующий вызов с rateLimits null старый rate не стирает', () => {
-  recordRequest('google', 'gemini-x', { total_tokens: 10 }, {
+  recordRequest('openrouter', 'model-x', { total_tokens: 10 }, {
     limitRequests: 100,
     remainingRequests: 95
   });
 
   let limits = readLimits();
-  const rate = limits.models['google:gemini-x']?.rate;
+  const rate = limits.models['openrouter:model-x']?.rate;
   assert.ok(rate);
   assert.strictEqual(typeof rate.at, 'number');
   assert.strictEqual(rate.limitRequests, 100);
   assert.strictEqual(rate.remainingRequests, 95);
   const originalAt = rate.at;
 
-  recordRequest('google', 'gemini-x', { total_tokens: 20 }, null);
+  recordRequest('openrouter', 'model-x', { total_tokens: 20 }, null);
   limits = readLimits();
-  const updatedRate = limits.models['google:gemini-x']?.rate;
+  const updatedRate = limits.models['openrouter:model-x']?.rate;
   assert.ok(updatedRate);
   assert.strictEqual(updatedRate.limitRequests, 100);
   assert.strictEqual(updatedRate.remainingRequests, 95);
@@ -113,14 +116,14 @@ test('2. recordRequest с rateLimits сохраняет rate с полем at, �
 });
 
 test('3. recordQuotaHit не стирает requests', () => {
-  recordRequest('google', 'gemini-x', { total_tokens: 50 });
+  recordRequest('openrouter', 'model-x', { total_tokens: 50 });
   let limits = readLimits();
-  assert.strictEqual(limits.models['google:gemini-x'].requests, 1);
+  assert.strictEqual(limits.models['openrouter:model-x'].requests, 1);
 
-  recordQuotaHit('google', 'gemini-x', new Error('Quota exceeded'));
+  recordQuotaHit('openrouter', 'model-x', new Error('Quota exceeded'));
   limits = readLimits();
-  assert.strictEqual(limits.models['google:gemini-x'].requests, 1);
-  assert.ok(limits.models['google:gemini-x'].hit);
+  assert.strictEqual(limits.models['openrouter:model-x'].requests, 1);
+  assert.ok(limits.models['openrouter:model-x'].hit);
 });
 
 test('4. parseRateHeaders: различные заголовки лимитов и null для нечисловых/пустых', () => {
@@ -191,24 +194,24 @@ test('6. parseQuotaError на ошибке с метаданными загол�
   });
 });
 
-test('7. usageLines: записаны gemini-x и gemini-y', async () => {
-  recordRequest('google', 'gemini-x', { total_tokens: 100 });
-  recordRequest('google', 'gemini-y', { total_tokens: 50 });
+test('7. usageLines: записаны model-x и model-y', async () => {
+  recordRequest('openrouter', 'model-x', { total_tokens: 100 });
+  recordRequest('openrouter', 'model-y', { total_tokens: 50 });
 
   const session = createSession();
   const lines = await usageLines(session);
   const text = lines.join('\n');
 
-  const activePos = text.indexOf('Активная модель: gemini-x');
+  const activePos = text.indexOf('Активная модель: model-x');
   const othersPos = text.indexOf('Остальные модели');
 
   assert.ok(activePos !== -1, 'Должна присутствовать строка активной модели');
   assert.ok(othersPos !== -1, 'Должна присутствовать секция "Остальные модели"');
-  assert.ok(activePos < othersPos, 'Позиция "Активная модель: gemini-x" должна быть меньше позиции "Остальные модели"');
-  assert.ok(text.includes('gemini-y  запросов 1'), 'Должна содержать "gemini-y  запросов 1"');
+  assert.ok(activePos < othersPos, 'Позиция "Активная модель: model-x" должна быть меньше позиции "Остальные модели"');
+  assert.ok(text.includes('model-y  запросов 1'), 'Должна содержать "model-y  запросов 1"');
 
   const lowerBlock = text.slice(othersPos);
-  assert.strictEqual(lowerBlock.includes('gemini-x'), false, 'Нижний блок не должен содержать gemini-x');
+  assert.strictEqual(lowerBlock.includes('model-x'), false, 'Нижний блок не должен содержать model-x');
   assert.strictEqual(text.includes('Окно'), false, 'В отчёте не должно быть слова "Окно"');
 });
 
@@ -234,15 +237,15 @@ test('9. usageLines без данных и с единственным пров�
   assert.strictEqual(text.includes('Остальные модели'), false);
 });
 
-test('10. usageLines с catalogCache.google', async () => {
+test('10. usageLines с catalogCache.openrouter', async () => {
   try {
-    catalogCache.google = [
-      { id: 'gemini-x' },
-      { id: 'gemini-y' },
-      { id: 'gemini-z' },
-      { id: 'gemini-off', unavailable: 'plan' }
+    catalogCache.openrouter = [
+      { id: 'model-x' },
+      { id: 'model-y' },
+      { id: 'model-z' },
+      { id: 'model-off', unavailable: 'plan' }
     ];
-    recordRequest('google', 'gemini-y', { total_tokens: 10 });
+    recordRequest('openrouter', 'model-y', { total_tokens: 10 });
 
     const session = createSession();
     const lines = await usageLines(session);
@@ -278,12 +281,12 @@ test('13. contextLines без lastUsage содержит "Данных пока 
   assert.ok(text.includes('Данных пока нет'), 'Должно содержать "Данных пока нет"');
 });
 
-test('14. usageLines, активная модель gemini-x: writeLimits с hit { limit: 5, metric: \'m\', at: Date.now() - 25 * 60 * 60 * 1000 } у \'google:gemini-x\'', async () => {
+test('14. usageLines, активная модель model-x: writeLimits с hit { limit: 5, metric: \'m\', at: Date.now() - 25 * 60 * 60 * 1000 } у \'openrouter:model-x\'', async () => {
   const session = createSession();
 
   writeLimits({
     models: {
-      'google:gemini-x': {
+      'openrouter:model-x': {
         hit: { limit: 5, metric: 'm', at: Date.now() - 25 * 60 * 60 * 1000 }
       }
     }
@@ -295,7 +298,7 @@ test('14. usageLines, активная модель gemini-x: writeLimits с hit
 
   writeLimits({
     models: {
-      'google:gemini-x': {
+      'openrouter:model-x': {
         hit: { limit: 5, metric: 'm', at: Date.now() - 60000 }
       }
     }
@@ -306,12 +309,12 @@ test('14. usageLines, активная модель gemini-x: writeLimits с hit
   assert.ok(text.includes('Отказ 429'));
 });
 
-test('15. usageLines, строка другой модели: \'google:gemini-y\' с hit at: Date.now() - 25 * 60 * 60 * 1000 и day \'2000-01-01\'', async () => {
+test('15. usageLines, строка другой модели: \'openrouter:model-y\' с hit at: Date.now() - 25 * 60 * 60 * 1000 и day \'2000-01-01\'', async () => {
   const session = createSession();
 
   writeLimits({
     models: {
-      'google:gemini-y': {
+      'openrouter:model-y': {
         day: '2000-01-01',
         hit: { limit: 5, metric: 'm', at: Date.now() - 25 * 60 * 60 * 1000 }
       }
@@ -320,11 +323,11 @@ test('15. usageLines, строка другой модели: \'google:gemini-y\
 
   let lines = await usageLines(session);
   let text = lines.join('\n');
-  assert.strictEqual(text.includes('gemini-y'), false);
+  assert.strictEqual(text.includes('model-y'), false);
 
   writeLimits({
     models: {
-      'google:gemini-y': {
+      'openrouter:model-y': {
         day: '2000-01-01',
         hit: { limit: 5, metric: 'm', at: Date.now() - 60000 }
       }
@@ -333,16 +336,16 @@ test('15. usageLines, строка другой модели: \'google:gemini-y\
 
   lines = await usageLines(session);
   text = lines.join('\n');
-  assert.ok(text.includes('gemini-y'));
+  assert.ok(text.includes('model-y'));
   assert.ok(text.includes('отказ 429 в'));
 });
 
-test('16. usageLines: \'google:gemini-y\' с day \'2000-01-01\', requests 9, без hit: в отчёте нет \'gemini-y\'', async () => {
+test('16. usageLines: \'openrouter:model-y\' с day \'2000-01-01\', requests 9, без hit: в отчёте нет \'model-y\'', async () => {
   const session = createSession();
 
   writeLimits({
     models: {
-      'google:gemini-y': {
+      'openrouter:model-y': {
         day: '2000-01-01',
         requests: 9
       }
@@ -351,7 +354,7 @@ test('16. usageLines: \'google:gemini-y\' с day \'2000-01-01\', requests 9, б�
 
   const lines = await usageLines(session);
   const text = lines.join('\n');
-  assert.strictEqual(text.includes('gemini-y'), false);
+  assert.strictEqual(text.includes('model-y'), false);
 });
 
 test('17. streamChatCompletion из src/llm/stream.js возвращает rateLimits из заголовков ответа', async () => {

@@ -1,143 +1,20 @@
-/** @fileoverview Стриминг ответов модели с таймаутами и обработкой рассуждений */
+/**
+ * @fileoverview Стриминг ответов модели с таймаутами и обработкой рассуждений
+ */
 
 import { createClient } from './client.js';
 import { createThinkFilter } from './thinkFilter.js';
-import { createToolCallState, accumulateToolCallDelta } from './toolCalls.js';
+import { createToolCallState } from './toolCalls.js';
 import { parseRateHeaders } from '../models/limits.js';
-import { findModel } from '../models/catalog.js';
-
-// Модель может молчать, пока думает или собирает большой вызов инструмента, поэтому лимит большой, а прервать можно вручную
-export const FIRST_CHUNK_TIMEOUT_MS = 600000;
-// Gemini отдаёт вызов инструмента одним чанком, поэтому после текста тишина бывает такой же долгой, как перед первым чанком
-export const STREAM_STALL_TIMEOUT_MS = FIRST_CHUNK_TIMEOUT_MS;
-
-// Модели, отказавшиеся от уровня рассуждений в этой сессии: ключ «провайдер:модель».
-// Следующие запросы идут без него, без лишнего запроса и повторного предупреждения.
-const effortUnsupported = new Set();
-
-/**
- * Формирует полезную нагрузку запроса к API модели
- *
- * @param {object} params - Параметры запроса
- * @returns {object} Объект параметров запроса
- */
-function buildRequestPayload({
-  model,
-  messages,
-  temperature,
-  maxTokens,
-  tools,
-  reasoningEffort,
-  provider,
-  sessionId
-}) {
-  const requestPayload = {
-    model: model,
-    messages: messages,
-    temperature: temperature,
-    stream: true,
-    stream_options: { include_usage: true }
-  };
-  if (maxTokens) {
-    requestPayload.max_tokens = maxTokens;
-  }
-  if (tools && tools.length > 0) {
-    requestPayload.tools = tools;
-  }
-  if (provider === 'openrouter') {
-    // Остальные провайдеры кэшируют сами, Claude только по явной просьбе
-    if (/^~?anthropic\//.test(model)) {
-      requestPayload.cache_control = { type: 'ephemeral' };
-    }
-    // Держит запросы одной сессии на одном провайдере, иначе кэш не срабатывает
-    if (sessionId) {
-      requestPayload.session_id = sessionId;
-    }
-  }
-  // Ollama отвечает 400 на reasoning_effort для моделей без рассуждений, а возможности модели известны заранее
-  const noThinking = (provider === 'ollama' && findModel(model)?.thinking === false) ||
-    effortUnsupported.has(`${provider}:${model}`);
-  if (reasoningEffort && reasoningEffort !== 'auto' && !noThinking) {
-    if (provider === 'openrouter') {
-      requestPayload.reasoning = { effort: reasoningEffort };
-    } else {
-      requestPayload.reasoning_effort = reasoningEffort;
-    }
-  }
-  return requestPayload;
-}
-
-/**
- * Создает сторож таймаутов стрима, таймер перезапускается на каждом чанке
- *
- * @param {object} params - Параметры сторожа таймаутов
- * @returns {object} Объект управления таймаутами
- */
-function createTimeoutGuard({ signal, firstChunkTimeoutMs, stallTimeoutMs }) {
-  const internalController = new AbortController();
-  let timedOut = false;
-  let receivedChunk = false;
-
-  const onExternalAbort = () => {
-    internalController.abort();
-  };
-
-  if (signal) {
-    if (signal.aborted) {
-      internalController.abort();
-    } else {
-      signal.addEventListener('abort', onExternalAbort, { once: true });
-    }
-  }
-
-  let timer = null;
-  const clearTimer = () => {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
-  };
-  const armTimer = (ms) => {
-    clearTimer();
-    timer = setTimeout(() => {
-      timedOut = true;
-      internalController.abort();
-    }, ms);
-  };
-
-  armTimer(firstChunkTimeoutMs);
-
-  return {
-    signal: internalController.signal,
-    get timedOut() {
-      return timedOut;
-    },
-    get receivedChunk() {
-      return receivedChunk;
-    },
-    onChunk() {
-      receivedChunk = true;
-      armTimer(stallTimeoutMs);
-    },
-    dispose() {
-      clearTimer();
-      if (signal) {
-        signal.removeEventListener('abort', onExternalAbort);
-      }
-    },
-    toError(model) {
-      if (!timedOut) return null;
-      if (receivedChunk) {
-        const timeoutErr = new Error(`Ответ модели ${model} оборвался: нет новых чанков ${Math.round(stallTimeoutMs / 1000)} с`);
-        timeoutErr.code = 'STREAM_STALL_TIMEOUT';
-        return timeoutErr;
-      }
-      const timeoutErr = new Error(`Модель ${model} не прислала ни одного чанка за ${Math.round(firstChunkTimeoutMs / 1000)} с — возможно, она ещё думала над ответом или запрос завис`);
-      timeoutErr.code = 'FIRST_CHUNK_TIMEOUT';
-      return timeoutErr;
-    }
-  };
-}
+import { ensureLocalModelInfo } from '../models/catalog.js';
+import { getProvider } from '../providers.js';
+import { buildRequestPayload, effortUnsupported } from './payload.js';
+import {
+  FIRST_CHUNK_TIMEOUT_MS,
+  STREAM_STALL_TIMEOUT_MS,
+  createTimeoutGuard
+} from './timeoutGuard.js';
+import { createDeltaHandler } from './deltaHandler.js';
 
 /**
  * Открывает поток ответов модели с обработкой неподдерживаемых параметров
@@ -150,10 +27,12 @@ function createTimeoutGuard({ signal, firstChunkTimeoutMs, stallTimeoutMs }) {
  * @param {string} [provider] - Идентификатор провайдера (для запоминания отказа от уровня рассуждений)
  * @returns {Promise<{ stream: AsyncIterable<object>, rateLimits: object|null }>} Поток ответов модели и лимиты
  */
-async function openStream(client, payload, guard, reasoningEffort, onWarning, provider) {
+export async function openStream(client, payload, guard, reasoningEffort, onWarning, provider) {
   while (true) {
     try {
-      const { data, response } = await client.chat.completions.create(payload, { signal: guard.signal }).withResponse();
+      const { data, response } = await client.chat.completions
+        .create(payload, { signal: guard.signal })
+        .withResponse();
       return {
         stream: data,
         rateLimits: parseRateHeaders(response?.headers)
@@ -166,15 +45,17 @@ async function openStream(client, payload, guard, reasoningEffort, onWarning, pr
       const msg = (err.message || '').toLowerCase();
       // Ollama: «"llama3.2:3b" does not support thinking»
       const hasReasoning = msg.includes('thinking') || msg.includes('reasoning');
-      const hasEffortUnsupported = (hasReasoning && msg.includes('not supported')) ||
+      const hasEffortUnsupported =
+        (hasReasoning && msg.includes('not supported')) ||
         ((err.status === 400 || err.statusCode === 400) && hasReasoning && msg.includes('support'));
 
       if ((payload.reasoning_effort || payload.reasoning) && hasEffortUnsupported) {
+        const attemptedEffort = payload.reasoning_effort || payload.reasoning?.effort || reasoningEffort;
         delete payload.reasoning_effort;
         delete payload.reasoning;
         effortUnsupported.add(`${provider}:${payload.model}`);
         if (typeof onWarning === 'function') {
-          onWarning(`Модель не поддерживает уровень рассуждений «${reasoningEffort}» — запрос без него.`);
+          onWarning(`Модель не поддерживает уровень рассуждений «${attemptedEffort}» — запрос без него.`);
         }
         continue;
       }
@@ -193,107 +74,6 @@ async function openStream(client, payload, guard, reasoningEffort, onWarning, pr
       throw err;
     }
   }
-}
-
-/**
- * Создает обработчик дельт потокового ответа модели
- *
- * @param {object} params - Параметры обработчика дельт
- * @returns {object} Объект с методами обработки чанков и состоянием
- */
-function createDeltaHandler({
-  state,
-  thinkFilter,
-  onModel,
-  onReasoning,
-  hasResponse
-}) {
-  let routedModel = '';
-  let modelReported = false;
-  let usage = null;
-  let inThinkingProcess = false;
-  let thinkingProcessBuffer = '';
-
-  function handleChunk(chunk) {
-    if (chunk.model) {
-      // Google returns ids as "models/<id>"
-      routedModel = chunk.model.replace(/^models\//, '');
-      if (!modelReported) {
-        modelReported = true;
-        if (typeof onModel === 'function') {
-          onModel(routedModel);
-        }
-      }
-    }
-
-    if (chunk.usage) {
-      usage = chunk.usage;
-    }
-
-    const delta = chunk.choices?.[0]?.delta;
-    if (!delta) return;
-
-    // Accumulate tool calls if any
-    if (delta.tool_calls) {
-      for (const tc of delta.tool_calls) {
-        accumulateToolCallDelta(state, tc);
-      }
-    }
-
-    // Forward reasoning tokens (DeepSeek R1, Nemotron, etc.; xAI присылает мысли в reasoning_content)
-    const reasoning = delta.reasoning || delta.reasoning_content;
-    if (reasoning) {
-      if (typeof onReasoning === 'function') {
-        onReasoning(reasoning);
-      }
-    }
-
-    if (delta.content) {
-      let content = delta.content;
-
-      // Suppress plain-text thinking process preamble (e.g. from Nemotron)
-      if (!hasResponse() && !thinkingProcessBuffer && /Here\x27s a thinking process:/i.test(content)) {
-        inThinkingProcess = true;
-      }
-
-      if (inThinkingProcess) {
-        thinkingProcessBuffer += content;
-        if (/\n\n(```|<!|[А-Яа-я#]|Here is|Вот)/.test(content)) {
-          inThinkingProcess = false;
-          content = content.replace(/^[\s\S]*?\n\n(?=```|<!|[А-Яа-я#]|Here is|Вот)/, '');
-          thinkingProcessBuffer = '';
-        } else {
-          if (typeof onReasoning === 'function') {
-            onReasoning(content);
-          }
-          return;
-        }
-      }
-
-      if (content) {
-        thinkFilter.push(content);
-      }
-    }
-  }
-
-  function flushPendingThinking() {
-    if (inThinkingProcess && thinkingProcessBuffer) {
-      inThinkingProcess = false;
-      thinkFilter.push(thinkingProcessBuffer);
-      thinkingProcessBuffer = '';
-    }
-  }
-
-  return {
-    handleChunk,
-    flushPendingThinking,
-    get usage() {
-      return usage;
-    },
-    get routedModel() {
-      return routedModel;
-    }
-  };
 }
 
 /**
@@ -316,7 +96,13 @@ function createDeltaHandler({
  * @param {(text: string) => void} [params.onChunk]
  * @param {(warning: string) => void} [params.onWarning]
  * @param {(modelId: string) => void} [params.onModel]
- * @returns {Promise<{ content: string, toolCalls: Array<object>|null, usage: object|null, routedModel: string, rateLimits: object|null }>}
+ * @returns {Promise<{
+ *   content: string,
+ *   toolCalls: Array<object>|null,
+ *   usage: object|null,
+ *   routedModel: string,
+ *   rateLimits: object|null
+ * }>}
  */
 export async function streamChatCompletion({
   provider = 'openrouter',
@@ -338,6 +124,10 @@ export async function streamChatCompletion({
 }) {
   if (!apiKey) {
     throw new Error('Ключ API не настроен — выполните /login');
+  }
+
+  if (getProvider(provider)?.local) {
+    await ensureLocalModelInfo(model);
   }
 
   const client = createClient(apiKey, provider);

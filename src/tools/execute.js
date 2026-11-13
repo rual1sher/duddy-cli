@@ -1,14 +1,8 @@
 /** @fileoverview Диспетчеризация и исполнение вызовов инструментов агента */
 
-import {
-  createFile,
-  createFolder,
-  readFile,
-  editFile,
-  deleteFile,
-  deleteFolder,
-  listDir
-} from './fileTools.js';
+import { createFile, editFile } from './writeFile.js';
+import { readFile } from './readFile.js';
+import { createFolder, deleteFile, deleteFolder, listDir } from './fsTools.js';
 import { grepFiles, globFiles } from './searchTools.js';
 import { runBash } from './bashTool.js';
 import { WRITE_TOOLS } from '../modes.js';

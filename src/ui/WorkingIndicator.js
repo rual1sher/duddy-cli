@@ -27,64 +27,6 @@ export function phaseLabel(phase, waitingForUser = false) {
 }
 
 /**
- * Координаты [x, y] 4 пикселей кольца 2×2 по часовой стрелке, начиная с (0,0)
- */
-export const RING_PATH = [
-  [0, 0], [1, 0], [1, 1], [0, 1]
-];
-
-/**
- * Вычисляет 2×2 сетку уровней яркости кольцевого индикатора для заданного шага анимации.
- *
- * @param {number} tick - Текущий шаг анимации
- * @returns {string[][]} Сетка 2×2 grid[y][x] со значениями 'head' | 'trail1' | 'trail2' | 'track'
- */
-export function ringPixels(tick) {
-  const grid = [
-    [null, null],
-    [null, null]
-  ];
-  const head = ((tick % 4) + 4) % 4;
-
-  for (let k = 0; k < RING_PATH.length; k++) {
-    const [x, y] = RING_PATH[k];
-    const d = (head - k + 4) % 4;
-    let level;
-    if (d === 0) {
-      level = 'head';
-    } else if (d === 1) {
-      level = 'trail1';
-    } else if (d === 2) {
-      level = 'trail2';
-    } else {
-      level = 'track';
-    }
-    grid[y][x] = level;
-  }
-
-  return grid;
-}
-
-/**
- * Преобразует сетку пикселей кольца в 1 строку из 2 терминальных ячеек с полублоками.
- *
- * @param {number} tick - Текущий шаг анимации
- * @returns {{ char: string, top: string, bottom: string }[][]} Массив 1×2 ячеек
- */
-export function ringCells(tick) {
-  const pixels = ringPixels(tick);
-  const row = [];
-
-  for (let c = 0; c < 2; c++) {
-    const top = pixels[0][c];
-    const bottom = pixels[1][c];
-    row.push({ char: '▀', top, bottom });
-  }
-
-  return [row];
-}
-
-/**
  * Индикатор работы ИИ в области диалога
  *
  * @param {object} props

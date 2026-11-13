@@ -68,9 +68,9 @@ test('isCodeUnfit определяет модели, непригодные дл
   assert.strictEqual(isCodeUnfit('qwen/qwen-2.5-coder-32b-instruct'), false);
 });
 
-test('errorHint для 403 с текстом про credits даёт подсказку про баланс xAI, а не «Ключ не подошёл»', () => {
+test('errorHint для 403 с текстом про credits даёт подсказку про баланс OpenRouter, а не «Ключ не подошёл»', () => {
   const err = { status: 403, message: "team doesn't have any credits" };
-  const session = { provider: 'xai', apiKey: 'k' };
+  const session = { provider: 'openrouter', apiKey: 'k' };
   const hint = errorHint(err, session);
-  assert.strictEqual(hint, 'На балансе xAI недостаточно средств — пополните счёт или выберите другую модель через /model');
+  assert.strictEqual(hint, 'На балансе OpenRouter недостаточно средств — пополните счёт или выберите другую модель через /model');
 });

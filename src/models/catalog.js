@@ -15,9 +15,7 @@ import {
   probeProvider,
   isOpenRouterFreeOnly
 } from './probe.js';
-import { fetchGoogleModels } from './google.js';
 import { fetchOpenRouterModels } from './openrouter.js';
-import { fetchXaiModels } from './xai.js';
 import { fetchOllamaModels, fetchOllamaPs } from './ollama.js';
 
 /**
@@ -69,6 +67,20 @@ export function findModel(id) {
 }
 
 /**
+ * Гарантирует, что сведения о локальной модели есть в каталоге: при пустом каталоге Ollama
+ * один раз загружает /api/tags (там есть capabilities). Ошибки глушатся.
+ *
+ * @param {string} [modelId] - Идентификатор модели
+ * @returns {Promise<void>}
+ */
+export async function ensureLocalModelInfo(modelId) {
+  if (findModel(modelId)) return;
+  try {
+    catalogCache.ollama = await fetchOllamaModels();
+  } catch {}
+}
+
+/**
  * Загрузить модели одного провайдера: кэш, API-запрос, пробинг и разметка недоступности
  *
  * @param {string} provider - Идентификатор провайдера
@@ -84,10 +96,7 @@ async function loadProviderModels(provider, keys) {
   let models = [];
   let probe = false;
   let freeOnlyKey = false;
-  if (provider === 'google') {
-    models = await fetchGoogleModels(key);
-    probe = true;
-  } else if (provider === 'openrouter') {
+  if (provider === 'openrouter') {
     const [all, freeOnly] = await Promise.all([fetchOpenRouterModels(), isOpenRouterFreeOnly(key)]);
     freeOnlyKey = freeOnly;
     models = all;
@@ -100,8 +109,6 @@ async function loadProviderModels(provider, keys) {
       );
       models = models.filter(m => !freeTwinIds.has(`${m.id}:free`));
     }
-  } else if (provider === 'xai') {
-    models = await fetchXaiModels(key);
   } else if (provider === 'ollama') {
     // Без запущенной Ollama запрос падает, и группа просто не попадает в список
     models = await fetchOllamaModels();

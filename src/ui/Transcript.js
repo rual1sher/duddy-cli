@@ -5,7 +5,6 @@
 import React from 'react';
 import { Box, Text, Static } from 'ink';
 import { bannerLines } from '../banner.js';
-import { AnimatedBanner } from './AnimatedBanner.js';
 import { theme } from '../theme.js';
 
 const h = React.createElement;
@@ -271,12 +270,6 @@ function renderTranscriptItem(item, index, session) {
  * @returns {React.ReactElement}
  */
 export function Transcript({ items, session, staticKey, flushed }) {
-  // Static печатается один раз, поэтому живой баннер рисуется в динамической
-  // области до первого сообщения, затем уходит в Static финальным кадром.
-  if (items.length === 1 && items[0].type === 'banner') {
-    return h(AnimatedBanner, { session });
-  }
-
   // Пока история помещается на экран, она рисуется в динамической области сверху,
   // чтобы поле ввода оставалось прижатым к низу.
   if (!flushed) {
