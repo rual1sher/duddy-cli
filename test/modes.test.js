@@ -174,3 +174,32 @@ test('requestApproval при ответе all для команды не выз�
   assert.strictEqual(modeSet, null);
   assert.ok(ctx.allowedCommands.has('npm test'));
 });
+
+test('requestApproval замеряет время ожидания пользователя в ctx.approvalWaitMs и суммирует его', async () => {
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const ctx = {
+    canPrompt: true,
+    approve: async () => {
+      await delay(50);
+      return 'yes';
+    }
+  };
+
+  await requestApproval('create_file', 'a.txt', ctx, []);
+  assert.ok(typeof ctx.approvalWaitMs === 'number', 'approvalWaitMs должно быть числом');
+  assert.ok(ctx.approvalWaitMs >= 40, `Ожидалось >= 40 мс, получено: ${ctx.approvalWaitMs}`);
+
+  const firstWait = ctx.approvalWaitMs;
+
+  await requestApproval('create_file', 'b.txt', ctx, []);
+  assert.ok(ctx.approvalWaitMs >= firstWait + 40, `Ожидалось >= ${firstWait + 40} мс, получено: ${ctx.approvalWaitMs}`);
+
+  const autoCtx = {
+    autoApprove: true,
+    canPrompt: true,
+    approvalWaitMs: 100,
+    approve: async () => 'yes'
+  };
+  await requestApproval('create_file', 'c.txt', autoCtx, []);
+  assert.strictEqual(autoCtx.approvalWaitMs, 100, 'автоподтверждение не должно увеличивать approvalWaitMs');
+});

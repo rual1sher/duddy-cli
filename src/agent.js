@@ -43,6 +43,7 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
   // История между ходами обрезается, поэтому «модель видела файл» действует только в пределах хода
   activeToolCtx.fullyRead = new Map();
   activeToolCtx.seenReads = new Map();
+  activeToolCtx.approvalWaitMs = 0;
   const readCalls = new Map();
   const turnUsage = { input: 0, output: 0, cached: 0 };
 
@@ -275,7 +276,7 @@ export async function runAgentTurn({ session, messages, toolCtx, signal, events 
     session.lastRoutedModel = routedModel;
   }
 
-  const elapsedMs = Date.now() - startedAt;
+  const elapsedMs = Math.max(0, Date.now() - startedAt - (activeToolCtx.approvalWaitMs || 0));
 
   return {
     finalText,

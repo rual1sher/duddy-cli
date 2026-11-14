@@ -35,9 +35,17 @@ export function phaseLabel(phase, waitingForUser = false) {
  * @param {number|null} [props.startedAt]
  * @param {() => number} [props.getLastActivity]
  * @param {boolean} [props.waitingForUser=false]
+ * @param {() => number} [props.getPausedMs]
  * @returns {React.ReactElement|null}
  */
-export function WorkingIndicator({ status, phase, startedAt, getLastActivity, waitingForUser = false }) {
+export function WorkingIndicator({
+  status,
+  phase,
+  startedAt,
+  getLastActivity,
+  waitingForUser = false,
+  getPausedMs = () => 0
+}) {
   const t = theme();
   const { tick, now } = useTicker(status === 'working');
 
@@ -46,10 +54,14 @@ export function WorkingIndicator({ status, phase, startedAt, getLastActivity, wa
   }
 
   const spinnerChar = SPINNER_FRAMES[tick % SPINNER_FRAMES.length];
-  const elapsed = startedAt ? Math.max(0, now - startedAt) : 0;
+  const pausedMs = typeof getPausedMs === 'function' ? getPausedMs() : 0;
+  const elapsed = startedAt ? Math.max(0, now - startedAt - pausedMs) : 0;
   const label = phaseLabel(phase, waitingForUser);
   const silent = now - (getLastActivity?.() || startedAt || now);
   const isSlow = !waitingForUser && phase !== 'tools' && silent > 20000;
+  const mainText = waitingForUser
+    ? `${spinnerChar} ${label}…`
+    : `${spinnerChar} ${label}… ${formatDuration(elapsed)}`;
 
   return h(
     Box,
@@ -57,7 +69,7 @@ export function WorkingIndicator({ status, phase, startedAt, getLastActivity, wa
     h(
       Text,
       { wrap: 'truncate-end' },
-      h(Text, { color: t.accent }, `${spinnerChar} ${label}… ${formatDuration(elapsed)}`),
+      h(Text, { color: t.accent }, mainText),
       isSlow
         ? h(Text, { color: t.warning }, ` · нет ответа ${formatDuration(silent)}`)
         : null

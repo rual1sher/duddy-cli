@@ -123,7 +123,7 @@ export function useAgentTurn({
       succeeded = true;
       clearModelBusy(session.provider, session.model);
 
-      const turnElapsed = elapsedMs ?? (Date.now() - startMs);
+      const turnElapsed = elapsedMs ?? Math.max(0, Date.now() - startMs - (toolCtxRef.current?.approvalWaitMs || 0));
       session.lastTurnMs = turnElapsed;
       if (lastUsage) {
         session.lastUsage = lastUsage;
@@ -144,12 +144,13 @@ export function useAgentTurn({
     } catch (err) {
       const kept = commitFailedTurn(session, content, err);
       if (err.name === 'AbortError' || abortControllerRef.current?.signal.aborted) {
+        const stoppedElapsed = Math.max(0, Date.now() - startMs - (toolCtxRef.current?.approvalWaitMs || 0));
         setTranscript(prev => [
           ...prev,
           {
             type: 'note',
             level: 'warn',
-            text: `Остановлено · ${formatDuration(Date.now() - startMs)}`
+            text: `Остановлено · ${formatDuration(stoppedElapsed)}`
           }
         ]);
       } else {

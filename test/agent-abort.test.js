@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { runAgentTurn } from '../src/agent.js';
@@ -204,5 +205,81 @@ test('при toolCtx.noTools запрос к модели уходит без п
   assert.strictEqual(res.finalText, 'Ответ без инструментов');
   assert.ok(capturedBody);
   assert.strictEqual(capturedBody.tools, undefined);
+});
+
+test('runAgentTurn: elapsedMs не включает время ожидания подтверждения пользователя', async () => {
+  const encoder = new TextEncoder();
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  let step = 0;
+
+  globalThis.fetch = () => {
+    step++;
+    const stream = new ReadableStream({
+      start(ctrl) {
+        if (step === 1) {
+          const chunk = {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call_1',
+                      type: 'function',
+                      function: {
+                        name: 'create_file',
+                        arguments: JSON.stringify({ path: 'temp-turn-test.txt', content: 'test' })
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          };
+          ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+          ctrl.enqueue(encoder.encode('data: [DONE]\n\n'));
+        } else {
+          const chunk = {
+            choices: [{ delta: { content: 'готово' } }]
+          };
+          ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+          ctrl.enqueue(encoder.encode('data: [DONE]\n\n'));
+        }
+        ctrl.close();
+      }
+    });
+
+    return Promise.resolve(new Response(stream, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' }
+    }));
+  };
+
+  const session = { provider: 'openrouter', apiKey: 'test', model: 'm', messages: [] };
+  const toolCtx = {
+    canPrompt: true,
+    approve: async () => {
+      await delay(60);
+      return 'yes';
+    }
+  };
+
+  try {
+    const started = Date.now();
+    const { elapsedMs } = await runAgentTurn({
+      session,
+      messages: [{ role: 'user', content: 'создай файл' }],
+      toolCtx
+    });
+    const totalWallClock = Date.now() - started;
+
+    assert.ok(toolCtx.approvalWaitMs >= 40, `approvalWaitMs (${toolCtx.approvalWaitMs}) должно быть >= 40`);
+    assert.ok(elapsedMs < totalWallClock - 40, `elapsedMs (${elapsedMs}) должно исключать ожидание`);
+    assert.ok(elapsedMs >= 0, `elapsedMs (${elapsedMs}) должно быть неотрицательным`);
+  } finally {
+    try {
+      await fs.unlink('temp-turn-test.txt');
+    } catch {}
+  }
 });
 

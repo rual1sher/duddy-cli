@@ -148,6 +148,7 @@ ${chalk.bold("Interactive Commands:")}
       noTools: isPipe && isLocal,
       ...renderer.toolCtxExtras,
     };
+    renderer.setToolCtx?.(toolCtx);
 
     const startTime = Date.now();
     const messagesToSend = [
@@ -173,7 +174,8 @@ ${chalk.bold("Interactive Commands:")}
         events: renderer.events,
       });
 
-      const durationStr = formatDuration(elapsedMs ?? Date.now() - startTime);
+      const turnElapsed = elapsedMs ?? Math.max(0, Date.now() - startTime - (toolCtx.approvalWaitMs || 0));
+      const durationStr = formatDuration(turnElapsed);
       console.log(
         paint('border')("╰─ ") +
           paint('success')("✔ Готово") +

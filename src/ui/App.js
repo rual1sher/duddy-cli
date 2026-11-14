@@ -245,7 +245,8 @@ export function App({ session }) {
           phase,
           startedAt,
           getLastActivity: () => lastActivityRef.current,
-          waitingForUser: overlay?.kind === 'approval'
+          waitingForUser: overlay?.kind === 'approval',
+          getPausedMs: () => toolCtxRef.current?.approvalWaitMs || 0
         }),
         h(Overlay, { overlay })
       )

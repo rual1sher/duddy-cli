@@ -3,8 +3,8 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Box, Text, useInput } from 'ink';
-import TextInput from 'ink-text-input';
+import { Box, Text, useInput, useWindowSize } from 'ink';
+import { PromptInput } from './PromptInput.js';
 import { theme } from '../theme.js';
 import { formatBytes } from '../images.js';
 import { useInputHistory } from './hooks/useInputHistory.js';
@@ -14,7 +14,7 @@ import { CommandMenu } from './CommandMenu.js';
 const h = React.createElement;
 
 /**
- * Обработчик клавиш поля ввода. Монтируется после TextInput с тем же key,
+ * Обработчик клавиш поля ввода. Монтируется после PromptInput с тем же key,
  * чтобы подписаться позже него: обработка Ctrl+V убирает уже вставленный им символ.
  *
  * @param {object} props
@@ -51,12 +51,17 @@ export function InputBox({
   onSend
 }) {
   const t = theme();
+  const windowSize = useWindowSize();
+  const columns = windowSize?.columns || process.stdout.columns || 80;
+  const rows = windowSize?.rows || process.stdout.rows || 24;
+  const width = Math.max(10, columns - 6);
+  const maxLines = Math.max(3, Math.min(10, Math.floor(rows / 3)));
   const [value, setValue] = useState('');
   const [commandIndex, setCommandIndex] = useState(0);
   const [inputKey, setInputKey] = useState(0);
   const prevValueRef = useRef('');
 
-  // TextInput двигает курсор только при своём вводе, смена key пересоздаёт его с курсором в конце
+  // PromptInput двигает курсор только при своём вводе, смена key пересоздаёт его с курсором в конце
   const setValueAtEnd = (next) => {
     setValue(next);
     setInputKey(k => k + 1);
@@ -220,21 +225,28 @@ export function InputBox({
         borderStyle: 'round',
         borderColor: t.accent,
         paddingX: 1,
-        width: '100%'
+        width: '100%',
+        flexDirection: 'row'
       },
-      h(Text, { color: t.accent }, '> '),
-      h(TextInput, {
-        key: `input-${inputKey}`,
-        value,
-        onChange: handleInputChange,
-        onSubmit: handleSubmit,
-        placeholder: busy
-          ? 'Напишите — сообщение будет добавлено к текущему ответу'
-          : 'Спросите что-нибудь, / — команды, Ctrl+V — картинка',
-        focus: !overlayOpen,
-        showCursor: !overlayOpen
-      }),
-      h(InputKeys, { key: `keys-${inputKey}`, onInput: handleKey })
+      h(Box, { width: 2, flexShrink: 0 }, h(Text, { color: t.accent }, '> ')),
+      h(
+        Box,
+        { flexGrow: 1, flexShrink: 1, flexDirection: 'column' },
+        h(PromptInput, {
+          key: `input-${inputKey}`,
+          value,
+          onChange: handleInputChange,
+          onSubmit: handleSubmit,
+          placeholder: busy
+            ? 'Напишите — сообщение будет добавлено к текущему ответу'
+            : 'Спросите что-нибудь, / — команды, Ctrl+V — картинка',
+          focus: !overlayOpen,
+          showCursor: !overlayOpen,
+          width,
+          maxLines
+        }),
+        h(InputKeys, { key: `keys-${inputKey}`, onInput: handleKey })
+      )
     ),
     notice
       ? h(

@@ -2,6 +2,8 @@
  * @fileoverview Описание старта вызовов инструментов и склонение числительных
  */
 
+import path from 'node:path';
+
 /**
  * Склонение существительных с числительными в русском языке
  *
@@ -38,7 +40,26 @@ const START_TITLES = {
 };
 
 /**
- * Определяет, что показать рядом с именем инструмента
+ * Преобразует абсолютный путь внутри рабочей папки в относительный
+ *
+ * @param {string} targetPath - Исходный путь
+ * @returns {string} Относительный путь (пустая строка заменяется на '.') или исходный путь
+ */
+function toRelativePath(targetPath) {
+  if (typeof targetPath !== 'string' || !path.isAbsolute(targetPath)) {
+    return targetPath;
+  }
+  const cwd = process.cwd();
+  const rel = path.relative(cwd, targetPath);
+  if (rel === '' || (!rel.startsWith('..' + path.sep) && rel !== '..' && !path.isAbsolute(rel))) {
+    return rel || '.';
+  }
+  return targetPath;
+}
+
+/**
+ * Определяет, что показать рядом с именем инструмента.
+ * Для файловых инструментов абсолютные пути внутри рабочей папки сокращаются до относительных.
  *
  * @param {string} name - Имя инструмента
  * @param {object} [args] - Аргументы вызова инструмента
@@ -47,8 +68,8 @@ const START_TITLES = {
 export function toolTarget(name, args) {
   if (name === 'bash') return String(args?.command ?? '').split('\n')[0].slice(0, 100);
   if (name === 'grep' || name === 'glob') return args?.pattern ?? '';
-  if (name === 'list_dir') return args?.path?.trim?.() || '.';
-  return args?.path ?? '';
+  if (name === 'list_dir') return toRelativePath(args?.path?.trim?.() || '.');
+  return toRelativePath(args?.path ?? '');
 }
 
 /**

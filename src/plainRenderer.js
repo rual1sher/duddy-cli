@@ -5,15 +5,40 @@ import { recordRequest } from './models/limits.js';
 import { theme, paint } from './theme.js';
 
 /**
+ * Вычисляет количество дефисов для заголовка ответа, чтобы строка не выходила за границы терминала.
+ *
+ * @param {string} label - Метка модели
+ * @param {number} [columns] - Ширина терминала в колонках (по умолчанию process.stdout.columns || 80)
+ * @returns {number} Количество дефисов (от 0 до 26)
+ */
+export function headerDashCount(label, columns = process.stdout.columns || 80) {
+  const width = `╭─ ✦ Duddy [${label}] `.length;
+  return Math.max(0, Math.min(26, columns - width));
+}
+
+/**
+ * Возвращает строку дефисов для заголовка ответа.
+ *
+ * @param {string} label - Метка модели
+ * @param {number} [columns] - Ширина терминала в колонках (по умолчанию process.stdout.columns || 80)
+ * @returns {string}
+ */
+export function headerDashes(label, columns = process.stdout.columns || 80) {
+  return '─'.repeat(headerDashCount(label, columns));
+}
+
+/**
  * Создает текстовый рендерер терминала для хода агента.
  *
  * @param {object} session - Текущая сессия Duddy
  * @param {object} options
  * @param {boolean} options.interactive - Доступен ли интерактивный ввод
+ * @param {object} [options.toolCtx] - Контекст инструментов для учёта пауз
  * @returns {{ events: object, toolCtxExtras: { log: Function, approve: Function }, finish: Function }}
  */
-export function createPlainRenderer(session, { interactive }) {
+export function createPlainRenderer(session, { interactive, toolCtx } = {}) {
   let routedModel = session.lastRoutedModel || '';
+  let activeToolCtx = toolCtx || null;
   const startedAt = Date.now();
   let phaseText = 'думает';
   let hasFirstText = false;
@@ -26,7 +51,8 @@ export function createPlainRenderer(session, { interactive }) {
       : session.model;
 
   const spinnerText = () => {
-    const elapsed = Date.now() - startedAt;
+    const pausedMs = (activeToolCtx || resultRenderer?.toolCtx || session?.toolCtx)?.approvalWaitMs || 0;
+    const elapsed = Math.max(0, Date.now() - startedAt - pausedMs);
     const slowWarning = (elapsed > 20000 && !hasFirstText)
       ? paint('warning')(' · долго: модель может ещё думать')
       : '';
@@ -87,7 +113,15 @@ export function createPlainRenderer(session, { interactive }) {
         if (spinner && spinner.isSpinning) {
           spinner.stop();
         }
-        process.stdout.write(paint('border')('\n╭─ ') + paint('accent').bold('✦ Duddy') + paint('faint')(` [${modelLabel()}] `) + paint('border')('─'.repeat(26)) + '\n');
+        const label = modelLabel();
+        const dashes = headerDashes(label);
+        process.stdout.write(
+          paint('border')('\n╭─ ') +
+          paint('accent').bold('✦ Duddy') +
+          paint('faint')(` [${label}] `) +
+          paint('border')(dashes) +
+          '\n'
+        );
         startedStreaming = true;
       }
       renderer.push(delta);
@@ -235,12 +269,17 @@ export function createPlainRenderer(session, { interactive }) {
     }
   };
 
-  return {
+  const resultRenderer = {
     events,
     toolCtxExtras: {
       log,
       approve
     },
-    finish
+    finish,
+    setToolCtx(ctx) {
+      activeToolCtx = ctx;
+    }
   };
+
+  return resultRenderer;
 }
