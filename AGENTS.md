@@ -137,6 +137,9 @@ duddy/
 │       ├── secretScan.js # Сканирование содержимого файлов на секреты (scanSecrets)
 │       ├── sensitivePath.js# Определение путей с секретами (classifyPath)
 │       └── writeFile.js  # Инструменты записи: create_file, edit_file и превью изменений
+├── docs/
+│   ├── CODE_MAP.md       # Карта кода для человека: шесть частей и путь одного сообщения
+│   └── screenshots/      # Скриншоты и demo.gif для README
 ├── test/                 # Тесты на node:test (update.test.js и др., без сети и зависимостей)
 ├── install.sh            # Установка и обновление: релиз в ~/.local/share/duddy/versions/<версия>, симлинк current, команда duddy в ~/.local/bin
 ├── LICENSE               # Лицензия MIT
