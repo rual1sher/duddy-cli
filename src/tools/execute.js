@@ -5,7 +5,7 @@ import { readFile } from './readFile.js';
 import { createFolder, deleteFile, deleteFolder, listDir } from './fsTools.js';
 import { grepFiles, globFiles } from './searchTools.js';
 import { runBash } from './bashTool.js';
-import { WRITE_TOOLS } from '../modes.js';
+import { WRITE_TOOLS } from '../agent/modes.js';
 
 const HANDLERS = {
   create_file: createFile,

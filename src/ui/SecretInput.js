@@ -5,8 +5,8 @@
 import React, { useState, useRef } from 'react';
 import { Box, Text, useInput, usePaste } from 'ink';
 import TextInput from 'ink-text-input';
-import { readClipboardText } from '../clipboard.js';
-import { theme } from '../theme.js';
+import { readClipboardText } from '../images/clipboard.js';
+import { theme } from '../render/theme.js';
 
 const h = React.createElement;
 

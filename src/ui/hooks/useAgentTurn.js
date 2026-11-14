@@ -3,15 +3,15 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import { runAgentTurn } from '../../agent.js';
-import { formatDuration } from '../../formatter.js';
-import { commitTurn, commitFailedTurn } from '../../history.js';
-import { handleModelError, errorText } from '../../errors.js';
+import { runAgentTurn } from '../../agent/agent.js';
+import { formatDuration } from '../../render/formatter.js';
+import { commitTurn, commitFailedTurn } from '../../agent/history.js';
+import { handleModelError, errorText } from '../../llm/errors.js';
 import { clearModelBusy } from '../../models/status.js';
 import { fetchKeyInfo } from '../../llm/modelInfo.js';
-import { buildUserContent } from '../../images.js';
-import { PLAN_MODE_PROMPT } from '../../modes.js';
-import { systemPromptFor } from '../../config.js';
+import { buildUserContent } from '../../images/images.js';
+import { PLAN_MODE_PROMPT } from '../../agent/modes.js';
+import { systemPromptFor } from '../../session/config.js';
 import { buildDoneItem, createTurnEvents } from './turnEvents.js';
 
 /**

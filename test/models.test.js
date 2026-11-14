@@ -26,7 +26,7 @@ const {
 } = await import('../src/models/status.js');
 
 const { isCodeUnfit } = await import('../src/models/filters.js');
-const { errorHint } = await import('../src/errors.js');
+const { errorHint } = await import('../src/llm/errors.js');
 
 test('isTemporaryOverload возвращает true для 503 и false для 400 без перегрузки', () => {
   assert.strictEqual(isTemporaryOverload(503), true);

@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { Box, Text, useWindowSize } from 'ink';
-import { theme } from '../theme.js';
+import { theme } from '../render/theme.js';
 import { wrapInput } from './wrapInput.js';
 
 const h = React.createElement;

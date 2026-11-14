@@ -2,7 +2,7 @@
  * @fileoverview Каталог моделей, кэширование и предоставление отсортированных списков
  */
 
-import { PROVIDERS, getProviderKey } from '../providers.js';
+import { PROVIDERS, getProviderKey } from '../llm/providers.js';
 import {
   readStatus,
   checkModelBusy,

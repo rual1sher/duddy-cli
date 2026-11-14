@@ -3,7 +3,7 @@
  */
 
 import { findModel } from '../models/catalog.js';
-import { getProvider } from '../providers.js';
+import { getProvider } from './providers.js';
 
 // Модели, отказавшиеся от уровня рассуждений в этой сессии: ключ «провайдер:модель».
 // Следующие запросы идут без него, без лишнего запроса и повторного предупреждения.

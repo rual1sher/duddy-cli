@@ -18,7 +18,7 @@ after(() => {
   }
 });
 
-const { loadConfig, saveConfig, DEFAULT_SYSTEM_PROMPT, systemPromptFor } = await import('../src/config.js');
+const { loadConfig, saveConfig, DEFAULT_SYSTEM_PROMPT, systemPromptFor } = await import('../src/session/config.js');
 
 const CONFIG_DIR = path.join(tmpHome, '.config', 'duddy');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');

@@ -4,8 +4,8 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { theme } from '../theme.js';
-import { formatDuration } from '../formatter.js';
+import { theme } from '../render/theme.js';
+import { formatDuration } from '../render/formatter.js';
 import { useTicker } from './hooks/useTicker.js';
 
 const h = React.createElement;

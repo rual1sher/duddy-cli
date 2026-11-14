@@ -2,17 +2,17 @@
 
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
-import { loadConfig, getActiveApiKey, DEFAULT_SYSTEM_PROMPT, LOCAL_SYSTEM_PROMPT, systemPromptFor } from "../src/config.js";
-import { getProvider } from "../src/providers.js";
+import { loadConfig, getActiveApiKey, DEFAULT_SYSTEM_PROMPT, LOCAL_SYSTEM_PROMPT, systemPromptFor } from "../src/session/config.js";
+import { getProvider } from "../src/llm/providers.js";
 import { startTui } from "../src/ui/index.js";
-import { runAgentTurn } from "../src/agent.js";
-import { handleModelError, errorText } from "../src/errors.js";
-import { createPlainRenderer } from "../src/plainRenderer.js";
-import { formatDuration } from "../src/formatter.js";
-import { buildProjectContext } from "../src/projectContext.js";
+import { runAgentTurn } from "../src/agent/agent.js";
+import { handleModelError, errorText } from "../src/llm/errors.js";
+import { createPlainRenderer } from "../src/render/plainRenderer.js";
+import { formatDuration } from "../src/render/formatter.js";
+import { buildProjectContext } from "../src/agent/projectContext.js";
 import chalk from "chalk";
-import { setTheme, paint } from "../src/theme.js";
-import { runUpdate } from "../src/updateInstall.js";
+import { setTheme, paint } from "../src/render/theme.js";
+import { runUpdate } from "../src/update/updateInstall.js";
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 

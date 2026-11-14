@@ -4,7 +4,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
-import { theme } from '../theme.js';
+import { theme } from '../render/theme.js';
 import { wrapInput, cursorPosition, visibleRange } from './wrapInput.js';
 
 const h = React.createElement;

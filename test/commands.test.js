@@ -18,7 +18,7 @@ after(() => {
   }
 });
 
-const { commandsFor, helpLines, AVAILABLE_COMMANDS } = await import('../src/commands.js');
+const { commandsFor, helpLines, AVAILABLE_COMMANDS } = await import('../src/ui/commands/commands.js');
 const { catalogCache, clearCatalogCache } = await import('../src/models/catalog.js');
 
 beforeEach(() => {

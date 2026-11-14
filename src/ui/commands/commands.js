@@ -2,9 +2,9 @@
  * @fileoverview Слеш-команды сессии Duddy, видимость по провайдеру и модели, справочный экран
  */
 
-import { paint } from './theme.js';
-import { getProvider } from './providers.js';
-import { findModel } from './models/catalog.js';
+import { paint } from '../../render/theme.js';
+import { getProvider } from '../../llm/providers.js';
+import { findModel } from '../../models/catalog.js';
 
 export const AVAILABLE_COMMANDS = [
   { cmd: '/update', desc: 'Обновить Duddy до последней версии' },

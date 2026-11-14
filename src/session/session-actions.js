@@ -3,11 +3,11 @@
  */
 
 import { loadConfig, saveConfig } from './config.js';
-import { getProvider, getProviderKey, detectProviderForModel } from './providers.js';
-import { findModel } from './models/catalog.js';
-import { checkOllamaServer } from './models/ollama.js';
-import { getUnavailableReason, UNAVAILABLE_REASONS } from './models/status.js';
-import { fetchKeyInfo, getModelContextLength } from './llm/modelInfo.js';
+import { getProvider, getProviderKey, detectProviderForModel } from '../llm/providers.js';
+import { findModel } from '../models/catalog.js';
+import { checkOllamaServer } from '../models/ollama.js';
+import { getUnavailableReason, UNAVAILABLE_REASONS } from '../models/status.js';
+import { fetchKeyInfo, getModelContextLength } from '../llm/modelInfo.js';
 
 /**
  * Переключает модель сессии с проверкой наличия ключа провайдера.

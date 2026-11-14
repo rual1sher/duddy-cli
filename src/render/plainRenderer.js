@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import { AnimatedTerminalRenderer, formatDuration } from './formatter.js';
-import { recordRequest } from './models/limits.js';
+import { recordRequest } from '../models/limits.js';
 import { theme, paint } from './theme.js';
 
 /**

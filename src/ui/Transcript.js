@@ -4,8 +4,8 @@
 
 import React from 'react';
 import { Box, Text, Static } from 'ink';
-import { bannerLines } from '../banner.js';
-import { theme } from '../theme.js';
+import { bannerLines } from '../render/banner.js';
+import { theme } from '../render/theme.js';
 import { UserMessage } from './UserMessage.js';
 
 const h = React.createElement;

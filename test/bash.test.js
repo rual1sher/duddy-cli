@@ -7,8 +7,8 @@ import assert from 'node:assert/strict';
 import { executeTool } from '../src/tools/execute.js';
 import { classifyCommand } from '../src/tools/commandPolicy.js';
 import { requestApproval } from '../src/tools/approval.js';
-import { describeToolStart } from '../src/toolDisplay.js';
-import { describeToolResult } from '../src/toolResultDisplay.js';
+import { describeToolStart } from '../src/render/toolDisplay.js';
+import { describeToolResult } from '../src/render/toolResultDisplay.js';
 
 const originalCwd = process.cwd();
 let tmpDir;

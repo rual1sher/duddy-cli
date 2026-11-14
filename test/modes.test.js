@@ -13,7 +13,7 @@ import {
   applyMode,
   toolsForMode,
   PLAN_MODE_PROMPT
-} from '../src/modes.js';
+} from '../src/agent/modes.js';
 import { AGENT_TOOLS } from '../src/tools/definitions.js';
 import { executeTool } from '../src/tools/execute.js';
 import { requestApproval } from '../src/tools/approval.js';

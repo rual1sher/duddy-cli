@@ -7,7 +7,7 @@ import { createThinkFilter } from './thinkFilter.js';
 import { createToolCallState } from './toolCalls.js';
 import { parseRateHeaders } from '../models/limits.js';
 import { ensureLocalModelInfo } from '../models/catalog.js';
-import { getProvider } from '../providers.js';
+import { getProvider } from './providers.js';
 import { buildRequestPayload, effortUnsupported } from './payload.js';
 import {
   FIRST_CHUNK_TIMEOUT_MS,

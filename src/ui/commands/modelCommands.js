@@ -2,12 +2,12 @@
  * @fileoverview Команды управления моделями (/model) в TUI Duddy
  */
 
-import { selectModel } from '../../session-actions.js';
+import { selectModel } from '../../session/session-actions.js';
 import { warmupLocalModel } from '../../llm/warmup.js';
-import { getProvider, detectProviderForModel } from '../../providers.js';
+import { getProvider, detectProviderForModel } from '../../llm/providers.js';
 import { checkOllamaServer } from '../../models/ollama.js';
 import { findModel, listModels, clearCatalogCache } from '../../models/catalog.js';
-import { loadConfig } from '../../config.js';
+import { loadConfig } from '../../session/config.js';
 import { UNAVAILABLE_REASONS } from '../../models/status.js';
 
 /**

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectProviderForModel, getProviderKey } from '../src/providers.js';
+import { detectProviderForModel, getProviderKey } from '../src/llm/providers.js';
 
 test('detectProviderForModel определяет провайдера по идентификатору модели', () => {
   assert.strictEqual(detectProviderForModel('grok-4.7'), 'openrouter');

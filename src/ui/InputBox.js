@@ -5,8 +5,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Box, Text, useInput, useWindowSize } from 'ink';
 import { PromptInput } from './PromptInput.js';
-import { theme } from '../theme.js';
-import { formatBytes } from '../images.js';
+import { theme } from '../render/theme.js';
+import { formatBytes } from '../images/images.js';
 import { useInputHistory } from './hooks/useInputHistory.js';
 import { useAttachments } from './hooks/useAttachments.js';
 import { CommandMenu } from './CommandMenu.js';

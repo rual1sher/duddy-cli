@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { toolTarget, describeToolStart } from '../src/toolDisplay.js';
+import { toolTarget, describeToolStart } from '../src/render/toolDisplay.js';
 
 test('toolTarget: абсолютный путь внутри cwd превращается в относительный', () => {
   const cwd = process.cwd();

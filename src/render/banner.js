@@ -6,7 +6,7 @@ import chalk from 'chalk';
 import fs from 'node:fs';
 import { paint } from './theme.js';
 
-const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+const pkg = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
 
 export const HINT = '/ — команды, Shift+Tab — режим';
 export const SEP = '  ·  ';

@@ -2,10 +2,10 @@
 
 import { createClient } from './client.js';
 import { buildRequestPayload } from './payload.js';
-import { toolsForMode } from '../modes.js';
+import { toolsForMode } from '../agent/modes.js';
 import { AGENT_TOOLS } from '../tools/definitions.js';
-import { systemPromptFor } from '../config.js';
-import { getProvider } from '../providers.js';
+import { systemPromptFor } from '../session/config.js';
+import { getProvider } from './providers.js';
 import { ensureLocalModelInfo } from '../models/catalog.js';
 
 /**

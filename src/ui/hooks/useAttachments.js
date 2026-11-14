@@ -4,13 +4,13 @@
 
 import { useState, useRef } from 'react';
 import { usePaste } from 'ink';
-import { readClipboardImage } from '../../clipboard.js';
-import { parseImagePaths } from '../../imagePaths.js';
+import { readClipboardImage } from '../../images/clipboard.js';
+import { parseImagePaths } from '../../images/imagePaths.js';
 import {
   loadImageFile,
   removeBrokenLabels,
   MAX_IMAGES_PER_MESSAGE
-} from '../../images.js';
+} from '../../images/images.js';
 
 /**
  * Хук работы с вложениями изображений в поле ввода

@@ -6,7 +6,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { exec } from 'node:child_process';
 import os from 'node:os';
-import { theme } from './theme.js';
+import { theme } from '../render/theme.js';
 
 /**
  * Generate PKCE code verifier and code challenge (S256)

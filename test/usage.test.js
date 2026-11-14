@@ -33,11 +33,11 @@ const {
 const {
   usageLines,
   openRouterLimitLines
-} = await import('../src/usageReport.js');
+} = await import('../src/reports/usageReport.js');
 
 const {
   contextLines
-} = await import('../src/contextReport.js');
+} = await import('../src/reports/contextReport.js');
 
 const {
   catalogCache,
@@ -386,7 +386,7 @@ test('17. streamChatCompletion из src/llm/stream.js возвращает rateL
 });
 
 test('18. runAgentTurn из src/agent.js вызывает events.onRequestDone с rateLimits и usage, а файл model-limits.json сам не создаёт', async () => {
-  const { runAgentTurn } = await import('../src/agent.js');
+  const { runAgentTurn } = await import('../src/agent/agent.js');
   const { limitsFile } = await import('../src/models/limits.js');
 
   const prevFetch = globalThis.fetch;

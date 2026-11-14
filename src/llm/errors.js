@@ -2,9 +2,9 @@
  * @fileoverview Определение подсказок к ошибкам API и провайдеров
  */
 
-import { noteModelError, UNAVAILABLE_REASONS } from './models/status.js';
+import { noteModelError, UNAVAILABLE_REASONS } from '../models/status.js';
 import { getProvider } from './providers.js';
-import { recordQuotaHit } from './models/limits.js';
+import { recordQuotaHit } from '../models/limits.js';
 
 /**
  * Человекочитаемый текст ошибки: провайдеры кладут причину в JSON внутри message

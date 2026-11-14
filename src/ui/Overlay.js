@@ -8,7 +8,7 @@ import { Picker } from './Picker.js';
 import { SecretInput } from './SecretInput.js';
 import { Approval } from './Approval.js';
 import { BrowserLogin } from './BrowserLogin.js';
-import { theme } from '../theme.js';
+import { theme } from '../render/theme.js';
 
 const h = React.createElement;
 

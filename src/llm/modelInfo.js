@@ -1,6 +1,6 @@
 /** @fileoverview Получение информации о ключе API и лимитах контекста моделей */
 
-import { ollamaHost } from '../providers.js';
+import { ollamaHost } from './providers.js';
 
 /**
  * Получить актуальную информацию о ключе и доступных лимитах/остатке

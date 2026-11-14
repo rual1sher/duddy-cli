@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { stripVTControlCharacters } from 'node:util';
-import { bannerLines, HINT } from '../src/banner.js';
+import { bannerLines, HINT } from '../src/render/banner.js';
 
 test('bannerLines возвращает 3 строки', () => {
   const lines = bannerLines({ model: 'm1', hasKey: true });

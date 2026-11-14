@@ -9,8 +9,8 @@ import {
   getThemeId,
   theme,
   paint
-} from '../src/theme.js';
-import { bannerLines } from '../src/banner.js';
+} from '../src/render/theme.js';
+import { bannerLines } from '../src/render/banner.js';
 
 test('THEME_IDS содержит 4 идентификатора: ровно 2 тёмные и 2 светлые темы', () => {
   assert.strictEqual(THEME_IDS.length, 4);

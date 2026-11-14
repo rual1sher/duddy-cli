@@ -4,8 +4,8 @@ import path from 'node:path';
 import { test, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { executeTool } from '../src/tools/execute.js';
-import { describeToolStart } from '../src/toolDisplay.js';
-import { describeToolResult } from '../src/toolResultDisplay.js';
+import { describeToolStart } from '../src/render/toolDisplay.js';
+import { describeToolResult } from '../src/render/toolResultDisplay.js';
 
 const originalCwd = process.cwd();
 let testTmpDir;

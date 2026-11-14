@@ -16,7 +16,7 @@ import { REPO, parseVersion, compareVersions, fetchReleases } from './update.js'
  * @returns {Promise<{ managed: boolean, root: string, installDir: string }>}
  */
 export async function detectInstall() {
-  const packageDir = fileURLToPath(new URL('..', import.meta.url));
+  const packageDir = fileURLToPath(new URL('../..', import.meta.url));
   let root;
   try {
     root = await fs.realpath(packageDir);

@@ -3,7 +3,7 @@
  */
 
 import { useRef, useState, useCallback } from 'react';
-import { applyMode } from '../../modes.js';
+import { applyMode } from '../../agent/modes.js';
 
 /**
  * Создает контекст инструментов и связывает его с сессией при каждом рендере

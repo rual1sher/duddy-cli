@@ -3,7 +3,7 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import { renderMarkdown } from '../../formatter.js';
+import { renderMarkdown } from '../../render/formatter.js';
 
 /**
  * Хук для управления живым выводом стриминга текста и выполняемых инструментов

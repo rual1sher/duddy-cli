@@ -4,8 +4,8 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { MODE_INFO } from '../modes.js';
-import { theme } from '../theme.js';
+import { MODE_INFO } from '../agent/modes.js';
+import { theme } from '../render/theme.js';
 
 const h = React.createElement;
 

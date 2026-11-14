@@ -18,13 +18,13 @@ import { useCommands } from './hooks/useCommands.js';
 import { openThemePicker } from './commands/themeCommand.js';
 import { useAgentTurn } from './hooks/useAgentTurn.js';
 import { listModels, findModel } from '../models/catalog.js';
-import { loadConfig } from '../config.js';
+import { loadConfig } from '../session/config.js';
 import { fetchKeyInfo, getModelContextLength } from '../llm/modelInfo.js';
-import { nextMode } from '../modes.js';
-import { checkForUpdate, updateMessage } from '../update.js';
-import { commandsFor } from '../commands.js';
+import { nextMode } from '../agent/modes.js';
+import { checkForUpdate, updateMessage } from '../update/update.js';
+import { commandsFor } from './commands/commands.js';
 import { warmupLocalModel } from '../llm/warmup.js';
-import { getProvider } from '../providers.js';
+import { getProvider } from '../llm/providers.js';
 
 const h = React.createElement;
 

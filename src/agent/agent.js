@@ -1,11 +1,11 @@
-import { streamChatCompletion } from './llm/stream.js';
-import { extractTextToolCalls } from './llm/textToolCalls.js';
-import { AGENT_TOOLS } from './tools/definitions.js';
-import { executeTool } from './tools/execute.js';
-import { describeToolResult } from './toolResultDisplay.js';
-import { compactToolResults } from './llm/compact.js';
+import { streamChatCompletion } from '../llm/stream.js';
+import { extractTextToolCalls } from '../llm/textToolCalls.js';
+import { AGENT_TOOLS } from '../tools/definitions.js';
+import { executeTool } from '../tools/execute.js';
+import { describeToolResult } from '../render/toolResultDisplay.js';
+import { compactToolResults } from '../llm/compact.js';
 import { toolsForMode } from './modes.js';
-import { fetchOllamaRuntimeContext, ollamaContextWarning } from './models/ollama.js';
+import { fetchOllamaRuntimeContext, ollamaContextWarning } from '../models/ollama.js';
 
 export const MAX_HISTORY_TURNS = 10;
 export const MAX_TOOL_TURNS = 10;

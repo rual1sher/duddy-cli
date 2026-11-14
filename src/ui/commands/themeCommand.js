@@ -3,8 +3,8 @@
  */
 
 import React from 'react';
-import { THEMES, THEME_IDS, getThemeId, setTheme } from '../../theme.js';
-import { loadConfig, saveConfig } from '../../config.js';
+import { THEMES, THEME_IDS, getThemeId, setTheme } from '../../render/theme.js';
+import { loadConfig, saveConfig } from '../../session/config.js';
 import { clearScreenToTop } from '../hooks/useResizeRedraw.js';
 import { ThemePreview } from '../ThemePreview.js';
 

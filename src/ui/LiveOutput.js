@@ -4,8 +4,8 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { renderMarkdown } from '../formatter.js';
-import { theme } from '../theme.js';
+import { renderMarkdown } from '../render/formatter.js';
+import { theme } from '../render/theme.js';
 
 const h = React.createElement;
 

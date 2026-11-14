@@ -5,10 +5,10 @@ import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { executeTool } from '../src/tools/execute.js';
 import { compactToolResults, TOOL_RESULT_BUDGET, TOOL_RESULT_TARGET } from '../src/llm/compact.js';
-import { commitTurn } from '../src/history.js';
-import { runAgentTurn } from '../src/agent.js';
-import { buildProjectContext } from '../src/projectContext.js';
-import { formatTurnUsage } from '../src/formatter.js';
+import { commitTurn } from '../src/agent/history.js';
+import { runAgentTurn } from '../src/agent/agent.js';
+import { buildProjectContext } from '../src/agent/projectContext.js';
+import { formatTurnUsage } from '../src/render/formatter.js';
 
 const originalFetch = globalThis.fetch;
 const originalCwd = process.cwd();

@@ -3,9 +3,9 @@
  */
 
 import chalk from 'chalk';
-import { paint } from './theme.js';
-import { getModelContextLength } from './llm/modelInfo.js';
-import { MAX_HISTORY_TURNS } from './history.js';
+import { paint } from '../render/theme.js';
+import { getModelContextLength } from '../llm/modelInfo.js';
+import { MAX_HISTORY_TURNS } from '../agent/history.js';
 import { makeProgressBar } from './reportFormat.js';
 
 /**

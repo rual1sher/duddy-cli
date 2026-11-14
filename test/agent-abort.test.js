@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { runAgentTurn } from '../src/agent.js';
+import { runAgentTurn } from '../src/agent/agent.js';
 
 const originalFetch = globalThis.fetch;
 

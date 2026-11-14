@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { getProvider, getProviderKey, PROVIDERS } from './providers.js';
+import { getProvider, getProviderKey, PROVIDERS } from '../llm/providers.js';
 
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'duddy');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');

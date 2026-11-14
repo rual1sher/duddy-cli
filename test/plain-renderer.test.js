@@ -16,7 +16,7 @@ after(() => {
   } catch {}
 });
 
-const { headerDashCount, headerDashes } = await import('../src/plainRenderer.js');
+const { headerDashCount, headerDashes } = await import('../src/render/plainRenderer.js');
 
 test('headerDashCount / headerDashes: короткая метка дает 26 дефисов', () => {
   const label = 'gpt-4o';

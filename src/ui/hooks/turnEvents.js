@@ -2,8 +2,8 @@
  * @fileoverview Обработчики событий хода агента и формирование завершающей записи
  */
 
-import { formatDuration } from '../../formatter.js';
-import { describeToolStart } from '../../toolDisplay.js';
+import { formatDuration } from '../../render/formatter.js';
+import { describeToolStart } from '../../render/toolDisplay.js';
 import { recordRequest } from '../../models/limits.js';
 
 /**

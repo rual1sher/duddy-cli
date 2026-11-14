@@ -3,10 +3,10 @@
  */
 
 import { useCallback } from 'react';
-import { connectOllama, saveOpenRouterKey } from '../../session-actions.js';
-import { startBrowserLogin } from '../../auth.js';
+import { connectOllama, saveOpenRouterKey } from '../../session/session-actions.js';
+import { startBrowserLogin } from '../../session/auth.js';
 import { warmupLocalModel } from '../../llm/warmup.js';
-import { getProvider } from '../../providers.js';
+import { getProvider } from '../../llm/providers.js';
 
 /**
  * Хук со сценариями авторизации пользователя в провайдерах

@@ -2,12 +2,12 @@
  * @fileoverview Сессионные команды интерфейса (/help, /clear, /usage, /context, /effort, /login)
  */
 
-import { helpLines, commandsFor } from '../../commands.js';
+import { helpLines, commandsFor } from './commands.js';
 import { clearScreenToTop } from '../hooks/useResizeRedraw.js';
-import { getProvider } from '../../providers.js';
-import { usageLines } from '../../usageReport.js';
-import { contextLines } from '../../contextReport.js';
-import { setEffort, saveOpenRouterKey, connectOllama } from '../../session-actions.js';
+import { getProvider } from '../../llm/providers.js';
+import { usageLines } from '../../reports/usageReport.js';
+import { contextLines } from '../../reports/contextReport.js';
+import { setEffort, saveOpenRouterKey, connectOllama } from '../../session/session-actions.js';
 import { warmupLocalModel } from '../../llm/warmup.js';
 
 /**

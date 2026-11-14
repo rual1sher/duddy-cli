@@ -4,8 +4,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { classifyPath } from './tools/sensitivePath.js';
-import { scanSecrets } from './tools/secretScan.js';
+import { classifyPath } from '../tools/sensitivePath.js';
+import { scanSecrets } from '../tools/secretScan.js';
 
 const INSTRUCTION_FILES = ['AGENTS.md', 'agents.md', 'CLAUDE.md'];
 const MAX_INSTRUCTION_CHARS = 6000;

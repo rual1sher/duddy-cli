@@ -18,12 +18,12 @@ after(() => {
   }
 });
 
-const { ollamaHost, getProviderKey, detectProviderForModel, PROVIDERS } = await import('../src/providers.js');
+const { ollamaHost, getProviderKey, detectProviderForModel, PROVIDERS } = await import('../src/llm/providers.js');
 const { fetchOllamaModels, fetchOllamaRuntimeContext, ollamaContextWarning, checkOllamaServer } = await import('../src/models/ollama.js');
-const { selectModel, connectOllama } = await import('../src/session-actions.js');
+const { selectModel, connectOllama } = await import('../src/session/session-actions.js');
 const { getModelContextLength } = await import('../src/llm/modelInfo.js');
-const { errorHint } = await import('../src/errors.js');
-const { runAgentTurn } = await import('../src/agent.js');
+const { errorHint } = await import('../src/llm/errors.js');
+const { runAgentTurn } = await import('../src/agent/agent.js');
 const { streamChatCompletion } = await import('../src/llm/stream.js');
 const { clearCatalogCache } = await import('../src/models/catalog.js');
 

@@ -3,7 +3,7 @@
  */
 
 import { useCallback } from 'react';
-import { runUpdate } from '../../updateInstall.js';
+import { runUpdate } from '../../update/updateInstall.js';
 import {
   changeModel,
   pickModel

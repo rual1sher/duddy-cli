@@ -2,7 +2,7 @@
  * @fileoverview Помощники форматирования числовых значений, шкал и меток для отчётов
  */
 
-import { paint } from './theme.js';
+import { paint } from '../render/theme.js';
 
 /**
  * Создаёт текстовый индикатор прогресса (progress bar) заданной ширины

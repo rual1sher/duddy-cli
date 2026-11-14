@@ -3,12 +3,12 @@
  */
 
 import chalk from 'chalk';
-import { paint } from './theme.js';
-import { loadConfig } from './config.js';
-import { PROVIDERS, getProvider, getProviderKey } from './providers.js';
-import { catalogCache } from './models/catalog.js';
-import { fetchKeyInfo } from './llm/modelInfo.js';
-import { readLimits } from './models/limits.js';
+import { paint } from '../render/theme.js';
+import { loadConfig } from '../session/config.js';
+import { PROVIDERS, getProvider, getProviderKey } from '../llm/providers.js';
+import { catalogCache } from '../models/catalog.js';
+import { fetchKeyInfo } from '../llm/modelInfo.js';
+import { readLimits } from '../models/limits.js';
 import {
   makeProgressBar,
   getTimeUntilMidnightUTC,

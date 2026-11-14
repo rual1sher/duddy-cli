@@ -1,7 +1,7 @@
 /** @fileoverview Клиент OpenAI для работы с провайдерами нейросетей */
 
 import OpenAI from 'openai';
-import { getProvider } from '../providers.js';
+import { getProvider } from './providers.js';
 
 /**
  * Создать OpenAI-совместимый клиент для указанного провайдера
