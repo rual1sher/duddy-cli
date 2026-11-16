@@ -4,7 +4,7 @@
 
 import { noteModelError, UNAVAILABLE_REASONS } from '../models/status.js';
 import { getProvider } from './providers.js';
-import { recordQuotaHit } from '../models/limits.js';
+import { recordQuotaHit, parseQuotaError } from '../models/limits.js';
 
 /**
  * Человекочитаемый текст ошибки: провайдеры кладут причину в JSON внутри message
@@ -57,15 +57,11 @@ export function errorHint(err, session) {
   if (!err) return null;
 
   const msg = (err.message || '').toLowerCase();
-  const code = err.code || '';
   const status = err.status || err.statusCode || 0;
-
-  if (code === 'FIRST_CHUNK_TIMEOUT' || code === 'STREAM_STALL_TIMEOUT') {
-    return 'Повторите запрос, разбейте задачу на части или выберите другую модель через /model';
-  }
 
   if (session?.provider === 'ollama') {
     const causeCode = err.cause?.code || err.cause?.cause?.code || '';
+    const code = err.code || '';
     if (
       code === 'ECONNREFUSED' ||
       causeCode === 'ECONNREFUSED' ||
@@ -98,8 +94,18 @@ export function errorHint(err, session) {
     status === 429 ||
     msg.includes('429') ||
     msg.includes('free-models-per-day') ||
+    msg.includes('free-models-per-min') ||
     msg.includes('rate limit')
   ) {
+    const quota = parseQuotaError(err);
+    const metric = quota?.metric || '';
+    if (metric.includes('free-models-per-day') || msg.includes('free-models-per-day')) {
+      return 'Дневной лимит бесплатных моделей OpenRouter исчерпан — он общий для всех :free моделей, ' +
+        'сброс в 00:00 UTC. Выберите платную модель или Ollama через /model';
+    }
+    if (metric.includes('free-models-per-min') || msg.includes('free-models-per-min')) {
+      return 'Минутный лимит OpenRouter (20 запросов в минуту) — подождите минуту и напишите «продолжай»';
+    }
     return 'Превышен лимит запросов для этой модели — подождите или выберите другую через /model';
   }
 

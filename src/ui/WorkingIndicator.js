@@ -21,8 +21,10 @@ export const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', 
  */
 export function phaseLabel(phase, waitingForUser = false) {
   if (waitingForUser) return 'Ждёт подтверждения';
+  if (phase === 'compacting') return 'Сжимает контекст';
   if (phase === 'reasoning') return 'Рассуждает';
   if (phase === 'tools') return 'Выполняет инструменты';
+  if (phase === 'ratelimit') return 'Ждёт минутный лимит OpenRouter';
   return 'Думает';
 }
 
@@ -33,7 +35,6 @@ export function phaseLabel(phase, waitingForUser = false) {
  * @param {'idle'|'working'} props.status
  * @param {string} [props.phase]
  * @param {number|null} [props.startedAt]
- * @param {() => number} [props.getLastActivity]
  * @param {boolean} [props.waitingForUser=false]
  * @param {() => number} [props.getPausedMs]
  * @returns {React.ReactElement|null}
@@ -42,7 +43,6 @@ export function WorkingIndicator({
   status,
   phase,
   startedAt,
-  getLastActivity,
   waitingForUser = false,
   getPausedMs = () => 0
 }) {
@@ -57,8 +57,6 @@ export function WorkingIndicator({
   const pausedMs = typeof getPausedMs === 'function' ? getPausedMs() : 0;
   const elapsed = startedAt ? Math.max(0, now - startedAt - pausedMs) : 0;
   const label = phaseLabel(phase, waitingForUser);
-  const silent = now - (getLastActivity?.() || startedAt || now);
-  const isSlow = !waitingForUser && phase !== 'tools' && silent > 20000;
   const mainText = waitingForUser
     ? `${spinnerChar} ${label}…`
     : `${spinnerChar} ${label}… ${formatDuration(elapsed)}`;
@@ -69,10 +67,7 @@ export function WorkingIndicator({
     h(
       Text,
       { wrap: 'truncate-end' },
-      h(Text, { color: t.accent }, mainText),
-      isSlow
-        ? h(Text, { color: t.warning }, ` · нет ответа ${formatDuration(silent)}`)
-        : null
+      h(Text, { color: t.accent }, mainText)
     )
   );
 }

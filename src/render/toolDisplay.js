@@ -26,6 +26,16 @@ export function plural(n, one, few, many) {
   return `${n} ${word}`;
 }
 
+/**
+ * Хвост итоговой строки хода с числом запросов к модели: « · 14 запросов»
+ *
+ * @param {number} [count] - Число HTTP-запросов к модели за ход
+ * @returns {string} Пустая строка, если число неизвестно
+ */
+export function requestsSuffix(count) {
+  return typeof count === 'number' ? ` · ${plural(count, 'запрос', 'запроса', 'запросов')}` : '';
+}
+
 const START_TITLES = {
   read_file: 'Читает',
   list_dir: 'Смотрит папку',

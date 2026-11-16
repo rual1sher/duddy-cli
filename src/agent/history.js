@@ -2,10 +2,7 @@
  * @fileoverview Управление историей сообщений сессии Duddy
  */
 
-import { MAX_HISTORY_TURNS } from './agent.js';
-
 export const MAX_IMAGE_TURNS = 3;
-export { MAX_HISTORY_TURNS };
 
 const MAX_TOOL_ARGUMENT_CHARS = 2000;
 
@@ -56,7 +53,6 @@ function trimToolResults(messages) {
  * - заменяет устаревшие изображения в истории на текстовые заглушки
  * - сохраняет сообщение пользователя и новые сообщения агента
  * - при пустом ответе сохраняет заглушку '(ход прерван: ответ не получен)'
- * - обрезает историю до MAX_HISTORY_TURNS ходов пользователя
  *
  * @param {object} session - Текущая сессия Duddy
  * @param {string|Array<object>} userText - Текст или массив частей запроса пользователя
@@ -93,18 +89,6 @@ export function commitTurn(session, userText, newMessages, finalText) {
   // 3. Заглушка при пустом ответе
   if (!finalText || !finalText.trim()) {
     session.messages.push({ role: 'assistant', content: '(ход прерван: ответ не получен)' });
-  }
-
-  // 4. Ограничиваем историю последними MAX_HISTORY_TURNS ходов пользователя
-  const userIndices = [];
-  for (let i = 0; i < session.messages.length; i++) {
-    if (session.messages[i].role === 'user') {
-      userIndices.push(i);
-    }
-  }
-  if (userIndices.length > MAX_HISTORY_TURNS) {
-    const cutoff = userIndices[userIndices.length - MAX_HISTORY_TURNS];
-    session.messages = session.messages.slice(cutoff);
   }
 }
 

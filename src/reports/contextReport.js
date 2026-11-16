@@ -1,15 +1,14 @@
 /**
- * @fileoverview Отчёт о заполнении окна контекста модели и истории диалога (/context)
+ * @fileoverview Отчёт о заполнении окна контекста модели (/context)
  */
 
 import chalk from 'chalk';
 import { paint } from '../render/theme.js';
 import { getModelContextLength } from '../llm/modelInfo.js';
-import { MAX_HISTORY_TURNS } from '../agent/history.js';
 import { makeProgressBar } from './reportFormat.js';
 
 /**
- * Формирует строки отчёта о заполнении окна контекста и истории диалога.
+ * Формирует строки отчёта о заполнении окна контекста.
  *
  * @param {object} session - Текущая сессия Duddy
  * @returns {Promise<string[]>} Массив строк отчёта
@@ -25,9 +24,7 @@ export async function contextLines(session) {
     } catch {}
   }
 
-  const turns = (session.messages || []).filter(m => m.role === 'user').length;
   const maxContext = session.contextLength || 1000000;
-  const histPct = Math.round((turns / MAX_HISTORY_TURNS) * 100);
 
   const lines = [
     paint('accent').bold(`🧠 Контекст (${session.model})`),
@@ -61,15 +58,6 @@ export async function contextLines(session) {
       )
     );
   }
-
-  lines.push(
-    chalk.bold('  📦 Буфер памяти диалога (Context History):'),
-    '  ' +
-      makeProgressBar(histPct) +
-      chalk.dim('  ·  ') +
-      paint('muted')(`${turns} из ${MAX_HISTORY_TURNS} ходов`),
-    chalk.dim(`  ↳ Запросов в текущем сеансе: ${chalk.bold(turns)}`)
-  );
 
   return lines;
 }

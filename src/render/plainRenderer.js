@@ -41,7 +41,6 @@ export function createPlainRenderer(session, { interactive, toolCtx } = {}) {
   let activeToolCtx = toolCtx || null;
   const startedAt = Date.now();
   let phaseText = 'думает';
-  let hasFirstText = false;
   let startedStreaming = false;
   let renderer = new AnimatedTerminalRenderer();
 
@@ -53,12 +52,8 @@ export function createPlainRenderer(session, { interactive, toolCtx } = {}) {
   const spinnerText = () => {
     const pausedMs = (activeToolCtx || resultRenderer?.toolCtx || session?.toolCtx)?.approvalWaitMs || 0;
     const elapsed = Math.max(0, Date.now() - startedAt - pausedMs);
-    const slowWarning = (elapsed > 20000 && !hasFirstText)
-      ? paint('warning')(' · долго: модель может ещё думать')
-      : '';
     return paint('accent').bold(`Duddy ${phaseText}… `) +
       paint('subtle')(`${formatDuration(elapsed)} · ${modelLabel()}`) +
-      slowWarning +
       paint('subtle')(' · Ctrl+C — прервать');
   };
 
@@ -96,6 +91,14 @@ export function createPlainRenderer(session, { interactive, toolCtx } = {}) {
         if (spinner && spinner.isSpinning) {
           spinner.text = spinnerText();
         }
+      } else if (phase === 'ratelimit') {
+        phaseText = 'ждёт минутный лимит OpenRouter';
+        if (!startedStreaming && spinner && !spinner.isSpinning) {
+          spinner.text = spinnerText();
+          spinner.start();
+        } else if (spinner && spinner.isSpinning) {
+          spinner.text = spinnerText();
+        }
       }
     },
 
@@ -109,7 +112,6 @@ export function createPlainRenderer(session, { interactive, toolCtx } = {}) {
     onText(delta) {
       if (!startedStreaming) {
         if (!delta.trim()) return;
-        hasFirstText = true;
         if (spinner && spinner.isSpinning) {
           spinner.stop();
         }

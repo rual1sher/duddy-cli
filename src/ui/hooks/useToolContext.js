@@ -13,10 +13,9 @@ import { applyMode } from '../../agent/modes.js';
  * @param {React.MutableRefObject<Array>} params.liveToolsRef - Реф списка активных инструментов
  * @param {Function} params.setLiveTools - Сеттер списка активных инструментов
  * @param {Function} params.setOverlay - Сеттер активного оверлея
- * @param {React.MutableRefObject<number>} params.lastActivityRef - Реф временной метки последней активности
  * @returns {{ toolCtxRef: React.MutableRefObject<object>, mode: string, setMode: (m: string) => void }}
  */
-export function useToolContext({ session, liveToolsRef, setLiveTools, setOverlay, lastActivityRef }) {
+export function useToolContext({ session, liveToolsRef, setLiveTools, setOverlay }) {
   const initialMode = session.autoApprove ? 'auto' : 'default';
   const [mode, setModeState] = useState(initialMode);
 
@@ -47,7 +46,6 @@ export function useToolContext({ session, liveToolsRef, setLiveTools, setOverlay
             sensitive,
             scope,
             onResolve: (choice) => {
-              lastActivityRef.current = Date.now();
               setOverlay(null);
               resolve(choice);
             }

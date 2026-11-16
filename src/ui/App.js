@@ -50,7 +50,6 @@ export function App({ session }) {
   const [overlay, setOverlay] = useState(null);
   const [draft, setDraft] = useState({ text: '', key: 0 });
 
-  const lastActivityRef = useRef(0);
   const lastSigintRef = useRef(0);
   const modelLabelRef = useRef('');
   const handleCommandRef = useRef(null);
@@ -73,8 +72,7 @@ export function App({ session }) {
     session,
     liveToolsRef,
     setLiveTools,
-    setOverlay,
-    lastActivityRef
+    setOverlay
   });
 
   const {
@@ -145,11 +143,11 @@ export function App({ session }) {
     queueRef,
     setQueued,
     handleSend,
-    abort
+    abort,
+    compactNow
   } = useAgentTurn({
     session,
     toolCtxRef,
-    lastActivityRef,
     liveToolsRef,
     setLiveTools,
     commitLiveText,
@@ -176,7 +174,8 @@ export function App({ session }) {
     startOpenRouterBrowserLogin,
     openLoginPicker,
     handleSend,
-    setDraft
+    setDraft,
+    compactNow
   });
   handleCommandRef.current = handleCommand;
 
@@ -244,7 +243,6 @@ export function App({ session }) {
           status,
           phase,
           startedAt,
-          getLastActivity: () => lastActivityRef.current,
           waitingForUser: overlay?.kind === 'approval',
           getPausedMs: () => toolCtxRef.current?.approvalWaitMs || 0
         }),

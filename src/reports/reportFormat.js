@@ -97,20 +97,3 @@ export function formatQuotaHit(hit) {
   const details = parts.length > 0 ? `: ${parts.join(', ')}` : '';
   return `Отказ 429${timeStr}${details}`;
 }
-
-/**
- * Разбирает ключ модели вида "<provider>:<modelId>" по первому двоеточию
- *
- * @param {string} key - Строка ключа модели
- * @returns {{ provider: string, modelId: string }}
- */
-export function parseModelKey(key) {
-  const idx = key.indexOf(':');
-  if (idx === -1) {
-    return { provider: '', modelId: key };
-  }
-  return {
-    provider: key.slice(0, idx),
-    modelId: key.slice(idx + 1)
-  };
-}

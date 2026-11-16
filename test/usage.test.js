@@ -194,82 +194,98 @@ test('6. parseQuotaError на ошибке с метаданными загол�
   });
 });
 
-test('7. usageLines: записаны model-x и model-y', async () => {
+test('7. usageLines: активная модель с записью за сегодня и отсутствие блока "Остальные модели"', async () => {
   recordRequest('openrouter', 'model-x', { total_tokens: 100 });
+  recordRequest('openrouter', 'model-x', { total_tokens: 150 });
   recordRequest('openrouter', 'model-y', { total_tokens: 50 });
 
-  const session = createSession();
+  const session = createSession({ apiKey: '' });
   const lines = await usageLines(session);
   const text = lines.join('\n');
 
-  const activePos = text.indexOf('Активная модель: model-x');
-  const othersPos = text.indexOf('Остальные модели');
-
-  assert.ok(activePos !== -1, 'Должна присутствовать строка активной модели');
-  assert.ok(othersPos !== -1, 'Должна присутствовать секция "Остальные модели"');
-  assert.ok(activePos < othersPos, 'Позиция "Активная модель: model-x" должна быть меньше позиции "Остальные модели"');
-  assert.ok(text.includes('model-y  запросов 1'), 'Должна содержать "model-y  запросов 1"');
-
-  const lowerBlock = text.slice(othersPos);
-  assert.strictEqual(lowerBlock.includes('model-x'), false, 'Нижний блок не должен содержать model-x');
-  assert.strictEqual(text.includes('Окно'), false, 'В отчёте не должно быть слова "Окно"');
+  assert.ok(text.includes('📊 Лимиты · model-x'), 'Должен быть заголовок активной модели');
+  assert.ok(
+    text.includes('Эта модель через Duddy сегодня: 2 запроса · 250 токенов'),
+    'Должна быть строка "Эта модель через Duddy сегодня: 2 запроса · 250 токенов"'
+  );
+  assert.strictEqual(text.includes('Остальные модели'), false, 'Блок "Остальные модели" не должен выводиться');
+  assert.strictEqual(text.includes('model-y'), false, 'Другие модели не должны выводиться');
+  assert.strictEqual(text.includes('Активная модель:'), false, 'Старая строка "Активная модель:" удалена');
+  assert.strictEqual(text.includes('За сессию:'), false, 'Старая строка "За сессию:" удалена');
+  assert.strictEqual(text.includes('Всего за сессию'), false, 'Старая строка "Всего за сессию" удалена');
 });
 
-test('8. usageLines: модель x/y:free провайдера openrouter с записью', async () => {
+test('8. usageLines: модель x/y:free другого запроса не выводится, а для a/b без записей "Эта модель через Duddy сегодня: запросов не было"', async () => {
   recordRequest('openrouter', 'x/y:free', { total_tokens: 10 });
 
   const session = createSession({
     provider: 'openrouter',
     model: 'a/b',
-    apiKey: 'sk-or-test-key'
+    apiKey: ''
   });
 
   const lines = await usageLines(session);
   const text = lines.join('\n');
-  assert.ok(text.includes('x/y:free  запросов 1'), 'Отчёт должен содержать "x/y:free  запросов 1"');
+  assert.strictEqual(text.includes('x/y:free'), false, 'Неактивная модель x/y:free не должна выводиться');
+  assert.ok(text.includes('Эта модель через Duddy сегодня: запросов не было'), 'Должно содержать "Эта модель через Duddy сегодня: запросов не было"');
 });
 
-test('9. usageLines без данных и с единственным провайдером не содержит "Остальные модели"', async () => {
+test('9. usageLines без данных: строка "Эта модель через Duddy сегодня: запросов не было" и нет "Остальные модели"', async () => {
   clearCatalogCache();
-  const session = createSession();
+  const session = createSession({ apiKey: '' });
   const lines = await usageLines(session);
   const text = lines.join('\n');
+  assert.ok(text.includes('Эта модель через Duddy сегодня: запросов не было'));
   assert.strictEqual(text.includes('Остальные модели'), false);
 });
 
-test('10. usageLines с catalogCache.openrouter', async () => {
-  try {
-    catalogCache.openrouter = [
-      { id: 'model-x' },
-      { id: 'model-y' },
-      { id: 'model-z' },
-      { id: 'model-off', unavailable: 'plan' }
-    ];
-    recordRequest('openrouter', 'model-y', { total_tokens: 10 });
+test('10. usageLines: freeDaily с remaining 0 -> "лимит исчерпан" и нет строки "Отказ 429"', async () => {
+  writeLimits({
+    models: {
+      'openrouter:model-x': {
+        hit: { limit: 50, metric: 'free-models-per-day', at: Date.now() - 60000 }
+      }
+    }
+  });
 
-    const session = createSession();
-    const lines = await usageLines(session);
-    const text = lines.join('\n');
-    assert.ok(text.includes('Ещё моделей: 1,'), 'Отчёт должен содержать "Ещё моделей: 1,"');
-  } finally {
-    clearCatalogCache();
-  }
+  const session = createSession({
+    apiKey: '',
+    keyInfo: {
+      free_model_daily_requests: {
+        limit: 50,
+        used: 50,
+        remaining: 0
+      }
+    }
+  });
+
+  const lines = await usageLines(session);
+  const text = lines.join('\n');
+  assert.ok(text.includes('лимит исчерпан'), 'Должно содержать "лимит исчерпан"');
+  assert.strictEqual(text.includes('Отказ 429'), false, 'Строка "Отказ 429" не должна выводиться при наличии шкалы freeDaily');
+  assert.strictEqual(text.includes('Остальные модели'), false);
 });
 
-test('11. openRouterLimitLines проверка условий баланса и расходов за день', () => {
-  const withoutLimit = openRouterLimitLines({ usage_daily: 1.5 }).join('\n');
-  assert.ok(withoutLimit.includes('День'), 'Должен содержать "День"');
-  assert.strictEqual(withoutLimit.includes('Баланс'), false, 'Не должен содержать "Баланс"');
+test('11. openRouterLimitLines: keyInfo.limit -> "Баланс:", monthly 0 -> нет "Потрачено", monthly > 0 -> "Потрачено:"', () => {
+  const withoutMonthly = openRouterLimitLines({ usage_daily: 1.5, usage_monthly: 0 }).join('\n');
+  assert.strictEqual(withoutMonthly.includes('Потрачено'), false, 'При monthly 0 строки "Потрачено" быть не должно');
+  assert.strictEqual(withoutMonthly.includes('Баланс'), false, 'Без limit строки "Баланс" быть не должно');
+  assert.strictEqual(withoutMonthly.includes('День:'), false, 'Старая строка "День:" удалена');
+
+  const withMonthly = openRouterLimitLines({ usage_daily: 1.5, usage_monthly: 10.2 }).join('\n');
+  assert.ok(
+    withMonthly.includes('Потрачено: $1.50 сегодня · $10.20 за месяц'),
+    'При monthly > 0 должна быть строка "Потрачено: $1.50 сегодня · $10.20 за месяц"'
+  );
 
   const withLimit = openRouterLimitLines({ limit: 10, usage: 1 }).join('\n');
-  assert.ok(withLimit.includes('Баланс'), 'Должен содержать "Баланс"');
+  assert.ok(withLimit.includes('Баланс:'), 'При limit должна присутствовать строка "Баланс:"');
 });
 
-test('12. contextLines: проверка ходов, токенов и отсутствия Лимит', async () => {
+test('12. contextLines: проверка токенов и отсутствия Лимит', async () => {
   const session = createSession();
   const lines = await contextLines(session);
   const text = lines.join('\n');
-  assert.ok(text.includes('из 10 ходов'), 'Должно содержать "из 10 ходов"');
   assert.ok(text.includes('100 из 1'), 'Должно содержать "100 из 1"');
   assert.strictEqual(text.includes('Лимит'), false, 'Не должно содержать подстроку "Лимит"');
 });
@@ -281,8 +297,8 @@ test('13. contextLines без lastUsage содержит "Данных пока 
   assert.ok(text.includes('Данных пока нет'), 'Должно содержать "Данных пока нет"');
 });
 
-test('14. usageLines, активная модель model-x: writeLimits с hit { limit: 5, metric: \'m\', at: Date.now() - 25 * 60 * 60 * 1000 } у \'openrouter:model-x\'', async () => {
-  const session = createSession();
+test('14. usageLines, активная модель: freeDaily нет, hit за 24ч -> "Отказ 429", hit старше 24ч -> не выводится', async () => {
+  const session = createSession({ apiKey: '' });
 
   writeLimits({
     models: {
@@ -294,7 +310,7 @@ test('14. usageLines, активная модель model-x: writeLimits с hit 
 
   let lines = await usageLines(session);
   let text = lines.join('\n');
-  assert.strictEqual(text.includes('Отказ 429'), false);
+  assert.strictEqual(text.includes('Отказ 429'), false, 'Hit старше 24 часов не должен выводиться');
 
   writeLimits({
     models: {
@@ -306,48 +322,17 @@ test('14. usageLines, активная модель model-x: writeLimits с hit 
 
   lines = await usageLines(session);
   text = lines.join('\n');
-  assert.ok(text.includes('Отказ 429'));
+  assert.ok(text.includes('Отказ 429'), 'Hit за последние 24 часа должен выводиться');
 });
 
-test('15. usageLines, строка другой модели: \'openrouter:model-y\' с hit at: Date.now() - 25 * 60 * 60 * 1000 и day \'2000-01-01\'', async () => {
-  const session = createSession();
-
-  writeLimits({
-    models: {
-      'openrouter:model-y': {
-        day: '2000-01-01',
-        hit: { limit: 5, metric: 'm', at: Date.now() - 25 * 60 * 60 * 1000 }
-      }
-    }
-  });
-
-  let lines = await usageLines(session);
-  let text = lines.join('\n');
-  assert.strictEqual(text.includes('model-y'), false);
+test('15. usageLines: данные другой модели "openrouter:model-y" со свежим hit не выводятся в отчёт', async () => {
+  const session = createSession({ apiKey: '' });
 
   writeLimits({
     models: {
       'openrouter:model-y': {
         day: '2000-01-01',
         hit: { limit: 5, metric: 'm', at: Date.now() - 60000 }
-      }
-    }
-  });
-
-  lines = await usageLines(session);
-  text = lines.join('\n');
-  assert.ok(text.includes('model-y'));
-  assert.ok(text.includes('отказ 429 в'));
-});
-
-test('16. usageLines: \'openrouter:model-y\' с day \'2000-01-01\', requests 9, без hit: в отчёте нет \'model-y\'', async () => {
-  const session = createSession();
-
-  writeLimits({
-    models: {
-      'openrouter:model-y': {
-        day: '2000-01-01',
-        requests: 9
       }
     }
   });
@@ -355,6 +340,27 @@ test('16. usageLines: \'openrouter:model-y\' с day \'2000-01-01\', requests 9, 
   const lines = await usageLines(session);
   const text = lines.join('\n');
   assert.strictEqual(text.includes('model-y'), false);
+  assert.strictEqual(text.includes('Остальные модели'), false);
+});
+
+test('16. usageLines: запросы другой модели "openrouter:model-y" за сегодня не выводятся в отчёт', async () => {
+  const session = createSession({ apiKey: '' });
+  const today = new Date().toISOString().slice(0, 10);
+
+  writeLimits({
+    models: {
+      'openrouter:model-y': {
+        day: today,
+        requests: 9,
+        tokens: 900
+      }
+    }
+  });
+
+  const lines = await usageLines(session);
+  const text = lines.join('\n');
+  assert.strictEqual(text.includes('model-y'), false);
+  assert.strictEqual(text.includes('Остальные модели'), false);
 });
 
 test('17. streamChatCompletion из src/llm/stream.js возвращает rateLimits из заголовков ответа', async () => {
@@ -429,4 +435,26 @@ test('18. runAgentTurn из src/agent.js вызывает events.onRequestDone �
       process.env.XDG_STATE_HOME = originalStateHome;
     }
   }
+});
+
+test('19. openRouterLimitLines: подсказка про $10 при исчерпании лимита < 1000 и отсутствие подсказки при лимите 1000', () => {
+  const exhausted = openRouterLimitLines({
+    free_model_daily_requests: { used: 53, limit: 50, remaining: 0 }
+  }).join('\n');
+  assert.ok(exhausted.includes('50 из 50'), 'Должна быть строка с "50 из 50"');
+  assert.strictEqual(exhausted.includes('53'), false, 'Строка не должна содержать "53"');
+  assert.ok(exhausted.includes('лимит исчерпан'), 'Должно содержать "лимит исчерпан"');
+  assert.ok(
+    exhausted.includes('после покупки $10 кредитов — 1000 запросов в день'),
+    'Должна быть подсказка про $10'
+  );
+
+  const notExhausted = openRouterLimitLines({
+    free_model_daily_requests: { used: 10, limit: 1000, remaining: 990 }
+  }).join('\n');
+  assert.strictEqual(
+    notExhausted.includes('$10'),
+    false,
+    'При limit 1000 подсказки про $10 быть не должно'
+  );
 });

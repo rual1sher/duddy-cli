@@ -3,17 +3,18 @@
  */
 
 import { formatDuration } from '../../render/formatter.js';
-import { describeToolStart } from '../../render/toolDisplay.js';
+import { describeToolStart, requestsSuffix } from '../../render/toolDisplay.js';
 import { recordRequest } from '../../models/limits.js';
 
 /**
- * Формирует запись о завершении агентного хода с длительностью и списком изменений
+ * Формирует запись о завершении агентного хода с длительностью, счётчиком запросов и изменениями
  *
  * @param {number} turnElapsed - Длительность хода в мс
  * @param {Map<string, string>} changesMap - Карта изменений файлов
+ * @param {number} [requestCount] - Число HTTP-запросов к модели за ход
  * @returns {object}
  */
-export function buildDoneItem(turnElapsed, changesMap) {
+export function buildDoneItem(turnElapsed, changesMap, requestCount) {
   const created = [];
   const modified = [];
   const deleted = [];
@@ -26,7 +27,7 @@ export function buildDoneItem(turnElapsed, changesMap) {
 
   return {
     type: 'done',
-    text: `✔ ${formatDuration(turnElapsed)}`,
+    text: `✔ ${formatDuration(turnElapsed)}${requestsSuffix(requestCount)}`,
     changes
   };
 }
@@ -40,7 +41,6 @@ export function buildDoneItem(turnElapsed, changesMap) {
 export function createTurnEvents({
   queueRef,
   setQueued,
-  lastActivityRef,
   commitLiveText,
   setTranscript,
   setPhase,
@@ -59,7 +59,6 @@ export function createTurnEvents({
       return taken;
     },
     onQueuedInjected: (texts) => {
-      lastActivityRef.current = Date.now();
       commitLiveText();
       setTranscript(prev => [
         ...prev,
@@ -67,25 +66,20 @@ export function createTurnEvents({
       ]);
     },
     onPhase: (p) => {
-      lastActivityRef.current = Date.now();
       setPhase(p);
     },
     onModel: (id) => {
-      lastActivityRef.current = Date.now();
       if (id && id !== session.model) {
         modelLabelRef.current = `${session.model} → ${id}`;
       }
     },
     onText: (delta) => {
-      lastActivityRef.current = Date.now();
       queueLiveText(delta);
     },
     onStepEnd: async () => {
-      lastActivityRef.current = Date.now();
       commitLiveText();
     },
     onToolStart: ({ id, name, args }) => {
-      lastActivityRef.current = Date.now();
       const display = describeToolStart(name, args);
       const target = display?.target ?? args?.path ?? '';
       const next = [...liveToolsRef.current, { id, name, target, display, logs: [] }];
@@ -93,7 +87,6 @@ export function createTurnEvents({
       setLiveTools(next);
     },
     onToolResult: ({ id, name, ok, summary, display }) => {
-      lastActivityRef.current = Date.now();
       const prev = liveToolsRef.current;
       const item = prev.find(t => t.id === id) || { id, name, target: '', logs: [] };
       const target = display?.target ?? item.target ?? '';

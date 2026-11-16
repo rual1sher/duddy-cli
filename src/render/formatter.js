@@ -128,6 +128,39 @@ export class AnimatedTerminalRenderer {
 }
 
 /**
+ * Убирает лишние пустые строки из массива строк Markdown-вывода:
+ * строки только из пробельных символов считаются пустыми;
+ * пустые строки в начале и конце массива убираются;
+ * несколько пустых строк подряд схлопываются в одну.
+ * Строки с текстом не изменяются.
+ *
+ * @param {string[]} lines - Массив строк от renderMarkdown
+ * @returns {string[]} Новый массив без лишних пустых строк
+ */
+export function tidyLines(lines) {
+  if (!lines || lines.length === 0) return [];
+  const result = [];
+  let prevEmpty = false;
+  for (const line of lines) {
+    const isEmpty = !line.trim();
+    if (isEmpty) {
+      if (!prevEmpty && result.length > 0) {
+        result.push('');
+      }
+      prevEmpty = true;
+    } else {
+      result.push(line);
+      prevEmpty = false;
+    }
+  }
+  // убрать хвостовые пустые строки
+  while (result.length > 0 && !result[result.length - 1].trim()) {
+    result.pop();
+  }
+  return result;
+}
+
+/**
  * Форматирует расход токенов за весь ход: вход всех шагов, выход и попадания в кэш
  *
  * @param {{ input: number, output: number, cached: number }} [usage] - Токены хода

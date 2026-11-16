@@ -58,7 +58,8 @@ export function useCommands({
   startOpenRouterBrowserLogin,
   openLoginPicker,
   handleSend,
-  setDraft
+  setDraft,
+  compactNow
 }) {
   const ctx = {
     session,
@@ -74,7 +75,8 @@ export function useCommands({
     startOpenRouterBrowserLogin,
     openLoginPicker,
     handleSend,
-    setDraft
+    setDraft,
+    compactNow
   };
 
   const handleCommand = useCallback(async (rawCmd) => {
@@ -94,6 +96,10 @@ export function useCommands({
 
       case 'clear':
         clearConversation(ctx);
+        return;
+
+      case 'compact':
+        await ctx.compactNow();
         return;
 
       case 'context':
@@ -153,7 +159,8 @@ export function useCommands({
     setQueued,
     toolCtxRef,
     startOpenRouterBrowserLogin,
-    openLoginPicker
+    openLoginPicker,
+    compactNow
   ]);
 
   return { handleCommand, openThemePicker: (opts) => openThemePicker(ctx, opts) };

@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { renderMarkdown } from '../render/formatter.js';
+import { renderMarkdown, tidyLines } from '../render/formatter.js';
 import { theme } from '../render/theme.js';
 
 const h = React.createElement;
@@ -57,7 +57,7 @@ export function LiveOutput({ liveTools, liveText }) {
   }
 
   if (liveText && liveText.trim()) {
-    const liveLines = renderMarkdown(liveText);
+    const liveLines = tidyLines(renderMarkdown(liveText));
     liveElements.push(
       h(
         Box,
