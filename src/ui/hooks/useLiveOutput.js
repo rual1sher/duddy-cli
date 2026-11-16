@@ -3,7 +3,7 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import { renderMarkdown } from '../../render/formatter.js';
+import { renderMarkdown, tidyLines } from '../../render/formatter.js';
 
 /**
  * Хук для управления живым выводом стриминга текста и выполняемых инструментов
@@ -36,7 +36,7 @@ export function useLiveOutput({ setTranscript, modelLabelRef }) {
       setLiveText('');
       return;
     }
-    const rendered = renderMarkdown(liveTextBufferRef.current);
+    const rendered = tidyLines(renderMarkdown(liveTextBufferRef.current));
     setTranscript(prev => [
       ...prev,
       { type: 'assistant', lines: rendered, label: modelLabelRef.current }

@@ -13,6 +13,7 @@ import { buildProjectContext } from "../src/agent/projectContext.js";
 import chalk from "chalk";
 import { setTheme, paint } from "../src/render/theme.js";
 import { runUpdate } from "../src/update/updateInstall.js";
+import { requestsSuffix } from "../src/render/toolDisplay.js";
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -55,7 +56,8 @@ ${chalk.bold("Interactive Commands:")}
   ${paint('warning')("/theme")}   Выбрать цветовую тему
   ${paint('warning')("/login")}   Login: OpenRouter or local Ollama
   ${paint('warning')("/clear")}   Clear conversation context
-  ${paint('warning')("/context")} Show context window and history
+  ${paint('warning')("/compact")} Сжать историю диалога в пересказ
+  ${paint('warning')("/context")} Show context window
   ${paint('warning')("/usage")}   Show model limits and token spend
   ${paint('warning')("/exit")}    Quit session
   ${paint('warning')("Shift+Tab")} Режим: обычный → правки без подтверждения → план → авто
@@ -166,7 +168,7 @@ ${chalk.bold("Interactive Commands:")}
     process.on("SIGINT", onSigint);
 
     try {
-      const { elapsedMs, finalText } = await runAgentTurn({
+      const { elapsedMs, requestCount } = await runAgentTurn({
         session,
         messages: messagesToSend,
         toolCtx,
@@ -179,16 +181,19 @@ ${chalk.bold("Interactive Commands:")}
       console.log(
         paint('border')("╰─ ") +
           paint('success')("✔ Готово") +
-          paint('subtle')(` · ${durationStr}\n`),
+          paint('subtle')(` · ${durationStr}${requestsSuffix(requestCount)}\n`),
       );
     } catch (err) {
       if (controller.signal.aborted || err?.name === "AbortError") {
-        console.error(paint('warning')("\nОстановлено"));
+        console.error(paint('warning')(`\nОстановлено${requestsSuffix(err.requestCount)}`));
         process.exitCode = 130;
       } else {
         console.error(paint('error')(`\nError: ${errorText(err)}`));
         const hint = handleModelError(err, session);
         if (hint) console.error(paint('warning')(`↳ ${hint}`));
+        if (typeof err.requestCount === 'number') {
+          console.error(paint('subtle')(`Запросов к модели: ${err.requestCount}`));
+        }
         process.exit(1);
       }
     } finally {

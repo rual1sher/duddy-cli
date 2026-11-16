@@ -37,13 +37,14 @@ beforeEach(() => {
 
 test('AVAILABLE_COMMANDS содержит базовый список команд', () => {
   assert.ok(Array.isArray(AVAILABLE_COMMANDS));
-  assert.strictEqual(AVAILABLE_COMMANDS.length, 10);
+  assert.strictEqual(AVAILABLE_COMMANDS.length, 11);
   const cmds = AVAILABLE_COMMANDS.map(c => c.cmd);
   assert.ok(cmds.includes('/update'));
   assert.ok(cmds.includes('/model'));
   assert.ok(cmds.includes('/effort'));
   assert.ok(cmds.includes('/login'));
   assert.ok(cmds.includes('/clear'));
+  assert.ok(cmds.includes('/compact'));
   assert.ok(cmds.includes('/context'));
   assert.ok(cmds.includes('/usage'));
   assert.ok(cmds.includes('/theme'));
@@ -83,6 +84,7 @@ test('ollama + модель с thinking: true: нет /login, /usage; есть /
   assert.ok(cmds.includes('/effort'), 'Для модели Ollama с thinking: true должен быть /effort');
   assert.ok(cmds.includes('/model'));
   assert.ok(cmds.includes('/clear'));
+  assert.ok(cmds.includes('/compact'));
   assert.ok(cmds.includes('/context'));
   assert.ok(cmds.includes('/theme'));
   assert.ok(cmds.includes('/help'));

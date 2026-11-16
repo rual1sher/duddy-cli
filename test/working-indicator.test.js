@@ -32,11 +32,14 @@ test('phaseLabel: корректно определяет текстовую м�
   assert.strictEqual(phaseLabel(undefined, true), 'Ждёт подтверждения');
   assert.strictEqual(phaseLabel('reasoning', true), 'Ждёт подтверждения');
   assert.strictEqual(phaseLabel('tools', true), 'Ждёт подтверждения');
+  assert.strictEqual(phaseLabel('ratelimit', true), 'Ждёт подтверждения');
   assert.strictEqual(phaseLabel('unknown', true), 'Ждёт подтверждения');
 
   // Фазы без ожидания пользователя
+  assert.strictEqual(phaseLabel('compacting', false), 'Сжимает контекст');
   assert.strictEqual(phaseLabel('reasoning', false), 'Рассуждает');
   assert.strictEqual(phaseLabel('tools', false), 'Выполняет инструменты');
+  assert.strictEqual(phaseLabel('ratelimit', false), 'Ждёт минутный лимит OpenRouter');
   assert.strictEqual(phaseLabel('thinking', false), 'Думает');
   assert.strictEqual(phaseLabel(undefined, false), 'Думает');
   assert.strictEqual(phaseLabel(null, false), 'Думает');

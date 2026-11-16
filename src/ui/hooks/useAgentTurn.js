@@ -13,6 +13,8 @@ import { buildUserContent } from '../../images/images.js';
 import { PLAN_MODE_PROMPT } from '../../agent/modes.js';
 import { systemPromptFor } from '../../session/config.js';
 import { buildDoneItem, createTurnEvents } from './turnEvents.js';
+import { requestsSuffix } from '../../render/toolDisplay.js';
+import { useCompaction } from './useCompaction.js';
 
 /**
  * Хук агентного цикла исполнения запросов пользователя
@@ -23,7 +25,6 @@ import { buildDoneItem, createTurnEvents } from './turnEvents.js';
 export function useAgentTurn({
   session,
   toolCtxRef,
-  lastActivityRef,
   liveToolsRef,
   setLiveTools,
   commitLiveText,
@@ -45,6 +46,27 @@ export function useAgentTurn({
   const abortControllerRef = useRef(null);
   const changesRef = useRef(new Map());
   const sendRef = useRef(null);
+
+  const { maybeCompactBeforeTurn, compactNow: rawCompactNow } = useCompaction({
+    session,
+    busyRef,
+    abortControllerRef,
+    setStatus,
+    setPhase,
+    setStartedAt,
+    addNote
+  });
+
+  const compactNow = useCallback(async () => {
+    await rawCompactNow();
+    if (queueRef.current.length > 0) {
+      const queuedItems = queueRef.current;
+      queueRef.current = [];
+      setQueued([]);
+      const joined = queuedItems.join('\n\n');
+      setTimeout(() => sendRef.current?.(joined), 0);
+    }
+  }, [rawCompactNow]);
 
   const abort = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -76,29 +98,29 @@ export function useAgentTurn({
     setPhase('thinking');
     const startMs = Date.now();
     setStartedAt(startMs);
-    lastActivityRef.current = Date.now();
 
     abortControllerRef.current = new AbortController();
     modelLabelRef.current = session.model;
     liveTextBufferRef.current = '';
 
     const content = buildUserContent(trimmed, images);
-
-    const basePrompt = systemPromptFor(session);
-    const systemContent = toolCtxRef.current?.mode === 'plan'
-      ? `${basePrompt}\n\n${PLAN_MODE_PROMPT}`
-      : basePrompt;
-
-    const messagesToSend = [
-      { role: 'system', content: systemContent },
-      ...(session.messages || []),
-      { role: 'user', content }
-    ];
-
     let succeeded = false;
 
     try {
-      const { finalText, newMessages, lastUsage, elapsedMs } = await runAgentTurn({
+      await maybeCompactBeforeTurn(abortControllerRef.current.signal);
+
+      const basePrompt = systemPromptFor(session);
+      const systemContent = toolCtxRef.current?.mode === 'plan'
+        ? `${basePrompt}\n\n${PLAN_MODE_PROMPT}`
+        : basePrompt;
+
+      const messagesToSend = [
+        { role: 'system', content: systemContent },
+        ...(session.messages || []),
+        { role: 'user', content }
+      ];
+
+      const { finalText, newMessages, lastUsage, elapsedMs, requestCount } = await runAgentTurn({
         session,
         messages: messagesToSend,
         toolCtx: toolCtxRef.current,
@@ -106,7 +128,6 @@ export function useAgentTurn({
         events: createTurnEvents({
           queueRef,
           setQueued,
-          lastActivityRef,
           commitLiveText,
           setTranscript,
           setPhase,
@@ -131,7 +152,7 @@ export function useAgentTurn({
 
       setTranscript(prev => [
         ...prev,
-        buildDoneItem(turnElapsed, changesRef.current)
+        buildDoneItem(turnElapsed, changesRef.current, requestCount)
       ]);
 
       if (session.apiKey) {
@@ -150,7 +171,7 @@ export function useAgentTurn({
           {
             type: 'note',
             level: 'warn',
-            text: `Остановлено · ${formatDuration(stoppedElapsed)}`
+            text: `Остановлено · ${formatDuration(stoppedElapsed)}${requestsSuffix(err.requestCount)}`
           }
         ]);
       } else {
@@ -160,7 +181,7 @@ export function useAgentTurn({
           {
             type: 'note',
             level: 'error',
-            text: errorText(err),
+            text: errorText(err) + requestsSuffix(err.requestCount),
             hint: kept
               ? (hint
                   ? `${hint} Контекст хода сохранён — можно написать «продолжай».`
@@ -207,6 +228,7 @@ export function useAgentTurn({
     startedAt,
     queued,
     queueRef,
-    setQueued
+    setQueued,
+    compactNow
   };
 }

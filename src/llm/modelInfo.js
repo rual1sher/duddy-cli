@@ -12,7 +12,7 @@ import { ollamaHost } from './providers.js';
 export async function fetchKeyInfo(apiKey, provider = 'openrouter') {
   if (!apiKey || provider !== 'openrouter') return null;
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/auth/key', {
+    const res = await fetch('https://openrouter.ai/api/v1/key', {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'HTTP-Referer': 'https://github.com/duddy-cli',

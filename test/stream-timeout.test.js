@@ -41,59 +41,10 @@ function mockSSE(producer) {
   };
 }
 
-test('один чанк с текстом, потом зависание → reject с code STREAM_STALL_TIMEOUT', async () => {
-  mockSSE((sse) => {
-    sse.send({ choices: [{ delta: { content: 'Привет' } }] });
-    // зависание — ничего больше не отправляем, ждём таймаута
-  });
-
-  await assert.rejects(
-    async () => {
-      await streamChatCompletion({
-        provider: 'openrouter',
-        apiKey: 'test',
-        model: 'm',
-        messages: [],
-        firstChunkTimeoutMs: 50,
-        stallTimeoutMs: 50
-      });
-    },
-    (err) => {
-      assert.strictEqual(err.code, 'STREAM_STALL_TIMEOUT');
-      assert.match(err.message, /Ответ модели m оборвался: нет новых чанков/);
-      return true;
-    }
-  );
-});
-
-test('ни одного чанка, поток висит → FIRST_CHUNK_TIMEOUT', async () => {
-  mockSSE(() => {
-    // поток висит
-  });
-
-  await assert.rejects(
-    async () => {
-      await streamChatCompletion({
-        provider: 'openrouter',
-        apiKey: 'test',
-        model: 'm',
-        messages: [],
-        firstChunkTimeoutMs: 50,
-        stallTimeoutMs: 50
-      });
-    },
-    (err) => {
-      assert.strictEqual(err.code, 'FIRST_CHUNK_TIMEOUT');
-      assert.match(err.message, /не прислала ни одного чанка/);
-      return true;
-    }
-  );
-});
-
-test('чанки идут с паузой меньше лимита дольше суммарного лимита → успешный результат', async () => {
+test('чанки идут нормально → успешный результат', async () => {
   mockSSE(async (sse) => {
     for (let i = 0; i < 4; i++) {
-      await new Promise(r => setTimeout(r, 30));
+      await new Promise(r => setTimeout(r, 10));
       sse.send({ choices: [{ delta: { content: String(i) } }] });
     }
     sse.close();
@@ -103,15 +54,13 @@ test('чанки идут с паузой меньше лимита дольше
     provider: 'openrouter',
     apiKey: 'test',
     model: 'm',
-    messages: [],
-    firstChunkTimeoutMs: 50,
-    stallTimeoutMs: 50
+    messages: []
   });
 
   assert.strictEqual(res.content, '0123');
 });
 
-test('внешний AbortController.abort() посреди потока → reject с name AbortError и без timeout-кода', async () => {
+test('внешний AbortController.abort() посреди потока → reject с name AbortError', async () => {
   const ac = new AbortController();
 
   mockSSE((sse) => {
@@ -128,9 +77,7 @@ test('внешний AbortController.abort() посреди потока → rej
         apiKey: 'test',
         model: 'm',
         messages: [],
-        signal: ac.signal,
-        firstChunkTimeoutMs: 200,
-        stallTimeoutMs: 200
+        signal: ac.signal
       });
     },
     (err) => {

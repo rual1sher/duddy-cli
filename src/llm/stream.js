@@ -1,5 +1,6 @@
 /**
- * @fileoverview Стриминг ответов модели с таймаутами и обработкой рассуждений
+ * @fileoverview Стриминг ответов модели с обработкой рассуждений.
+ * Своих таймаутов нет — остановка только по внешнему AbortSignal (Esc).
  */
 
 import { createClient } from './client.js';
@@ -9,11 +10,6 @@ import { parseRateHeaders } from '../models/limits.js';
 import { ensureLocalModelInfo } from '../models/catalog.js';
 import { getProvider } from './providers.js';
 import { buildRequestPayload, effortUnsupported } from './payload.js';
-import {
-  FIRST_CHUNK_TIMEOUT_MS,
-  STREAM_STALL_TIMEOUT_MS,
-  createTimeoutGuard
-} from './timeoutGuard.js';
 import { createDeltaHandler } from './deltaHandler.js';
 
 /**
@@ -21,25 +17,32 @@ import { createDeltaHandler } from './deltaHandler.js';
  *
  * @param {object} client - Клиент API
  * @param {object} payload - Полезная нагрузка запроса
- * @param {object} guard - Сторож таймаутов
+ * @param {AbortSignal|null} signal - Внешний сигнал отмены
  * @param {string} reasoningEffort - Уровень рассуждений
  * @param {Function} [onWarning] - Колбэк для предупреждений
- * @param {string} [provider] - Идентификатор провайдера (для запоминания отказа от уровня рассуждений)
- * @returns {Promise<{ stream: AsyncIterable<object>, rateLimits: object|null }>} Поток ответов модели и лимиты
+ * @param {string} [provider] - Идентификатор провайдера
+ * @returns {Promise<{ stream: AsyncIterable<object>, rateLimits: object|null }>}
  */
-export async function openStream(client, payload, guard, reasoningEffort, onWarning, provider) {
+export async function openStream(client, payload, signal, reasoningEffort, onWarning, provider) {
   while (true) {
     try {
+      if (signal?.aborted) {
+        const abortErr = new Error('Request was aborted.');
+        abortErr.name = 'AbortError';
+        throw abortErr;
+      }
       const { data, response } = await client.chat.completions
-        .create(payload, { signal: guard.signal })
+        .create(payload, { signal })
         .withResponse();
       return {
         stream: data,
         rateLimits: parseRateHeaders(response?.headers)
       };
     } catch (err) {
-      if (guard.timedOut) {
-        throw err;
+      if (err.name === 'AbortError' || signal?.aborted) {
+        const abortErr = new Error('Request was aborted.');
+        abortErr.name = 'AbortError';
+        throw abortErr;
       }
 
       const msg = (err.message || '').toLowerCase();
@@ -77,7 +80,8 @@ export async function openStream(client, payload, guard, reasoningEffort, onWarn
 }
 
 /**
- * Stream a chat completion with conciseness filters.
+ * Стриминг ответа модели с фильтрацией рассуждений.
+ * Своих таймаутов нет — остановка только по signal (Esc).
  *
  * @param {object} params
  * @param {string} [params.provider='openrouter']
@@ -89,13 +93,12 @@ export async function openStream(client, payload, guard, reasoningEffort, onWarn
  * @param {number} [params.maxTokens]
  * @param {number} [params.temperature=0.4]
  * @param {string} [params.reasoningEffort='auto']
- * @param {number} [params.firstChunkTimeoutMs=600000]
- * @param {number} [params.stallTimeoutMs=600000]
  * @param {AbortSignal} [params.signal]
  * @param {(think: string) => void} [params.onReasoning]
  * @param {(text: string) => void} [params.onChunk]
  * @param {(warning: string) => void} [params.onWarning]
  * @param {(modelId: string) => void} [params.onModel]
+ * @param {Function} [params.onRequest] - Колбэк перед каждым HTTP-запросом (для счётчика)
  * @returns {Promise<{
  *   content: string,
  *   toolCalls: Array<object>|null,
@@ -114,13 +117,12 @@ export async function streamChatCompletion({
   maxTokens,
   temperature = 0.4,
   reasoningEffort = 'auto',
-  firstChunkTimeoutMs = FIRST_CHUNK_TIMEOUT_MS,
-  stallTimeoutMs = STREAM_STALL_TIMEOUT_MS,
   signal,
   onReasoning,
   onChunk,
   onWarning,
-  onModel
+  onModel,
+  onRequest
 }) {
   if (!apiKey) {
     throw new Error('Ключ API не настроен — выполните /login');
@@ -130,7 +132,7 @@ export async function streamChatCompletion({
     await ensureLocalModelInfo(model);
   }
 
-  const client = createClient(apiKey, provider);
+  const client = createClient(apiKey, provider, { onRequest });
   const requestPayload = buildRequestPayload({
     model,
     messages,
@@ -141,8 +143,6 @@ export async function streamChatCompletion({
     provider,
     sessionId
   });
-
-  const guard = createTimeoutGuard({ signal, firstChunkTimeoutMs, stallTimeoutMs });
 
   let fullResponse = '';
   const state = createToolCallState();
@@ -170,34 +170,26 @@ export async function streamChatCompletion({
 
   let streamResult = null;
   try {
-    streamResult = await openStream(client, requestPayload, guard, reasoningEffort, onWarning, provider);
+    streamResult = await openStream(client, requestPayload, signal, reasoningEffort, onWarning, provider);
     const stream = streamResult.stream;
 
     for await (const chunk of stream) {
-      guard.onChunk();
       deltaHandler.handleChunk(chunk);
     }
 
-    // The openai SDK ends the stream quietly on abort instead of throwing,
-    // which would pass a cancelled or timed-out reply off as a finished one
-    if (guard.signal.aborted) {
+    // OpenAI SDK тихо завершает поток при abort вместо выброса ошибки
+    if (signal?.aborted) {
       const abortErr = new Error('Request was aborted.');
       abortErr.name = 'AbortError';
       throw abortErr;
     }
   } catch (err) {
-    const timeoutErr = guard.toError(model);
-    if (timeoutErr) {
-      throw timeoutErr;
-    }
-    if (guard.signal.aborted) {
+    if (signal?.aborted || err.name === 'AbortError') {
       const abortErr = new Error('Request was aborted.');
       abortErr.name = 'AbortError';
       throw abortErr;
     }
     throw err;
-  } finally {
-    guard.dispose();
   }
 
   deltaHandler.flushPendingThinking();
