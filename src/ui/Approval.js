@@ -4,7 +4,7 @@
 
 import React, { useState } from 'react';
 import { Box, Text, useInput, usePaste } from 'ink';
-import { theme } from '../theme.js';
+import { theme } from '../render/theme.js';
 
 const h = React.createElement;
 

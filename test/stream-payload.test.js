@@ -1,11 +1,13 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { streamChatCompletion } from '../src/llm/stream.js';
+import { catalogCache } from '../src/models/catalog.js';
 
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  catalogCache.ollama = null;
 });
 
 function mockSSE(customProducer) {
@@ -54,23 +56,6 @@ function mockSSE(customProducer) {
   };
 }
 
-test('для provider xai с reasoningEffort high полезная нагрузка содержит reasoning_effort и правильный baseURL', async () => {
-  const mock = mockSSE();
-
-  await streamChatCompletion({
-    provider: 'xai',
-    apiKey: 'test-xai-key',
-    model: 'grok-4.7',
-    messages: [{ role: 'user', content: 'test' }],
-    reasoningEffort: 'high'
-  });
-
-  const { url, body } = mock.getRequest();
-  assert.ok(url.startsWith('https://api.x.ai/v1'));
-  assert.strictEqual(body.reasoning_effort, 'high');
-  assert.strictEqual(body.reasoning, undefined);
-});
-
 test('для provider openrouter с reasoningEffort high полезная нагрузка содержит reasoning.effort', async () => {
   const mock = mockSSE();
 
@@ -87,13 +72,13 @@ test('для provider openrouter с reasoningEffort high полезная наг
   assert.strictEqual(body.reasoning_effort, undefined);
 });
 
-test('для provider google с reasoningEffort high полезная нагрузка содержит reasoning_effort', async () => {
+test('для provider ollama с reasoningEffort high полезная нагрузка содержит reasoning_effort', async () => {
   const mock = mockSSE();
 
   await streamChatCompletion({
-    provider: 'google',
-    apiKey: 'test-google-key',
-    model: 'gemini-3.5-flash',
+    provider: 'ollama',
+    apiKey: 'ollama',
+    model: 'deepseek-r1:14b',
     messages: [{ role: 'user', content: 'test' }],
     reasoningEffort: 'high'
   });
@@ -105,7 +90,7 @@ test('для provider google с reasoningEffort high полезная нагру
 
 test('чанк с delta.reasoning_content вызывает колбэк onReasoning', async () => {
   mockSSE((sse) => {
-    sse.send({ choices: [{ delta: { reasoning_content: 'Размышление xAI' } }] });
+    sse.send({ choices: [{ delta: { reasoning_content: 'Размышление' } }] });
     sse.send({ choices: [{ delta: { content: 'Результат' } }] });
     sse.close();
   });
@@ -114,14 +99,85 @@ test('чанк с delta.reasoning_content вызывает колбэк onReason
   const textChunks = [];
 
   const res = await streamChatCompletion({
-    provider: 'xai',
+    provider: 'openrouter',
     apiKey: 'test-key',
-    model: 'grok-4.7',
+    model: 'deepseek/deepseek-r1',
     messages: [{ role: 'user', content: 'привет' }],
     onReasoning: (think) => reasoningChunks.push(think),
     onChunk: (text) => textChunks.push(text)
   });
 
-  assert.ok(reasoningChunks.includes('Размышление xAI'));
+  assert.ok(reasoningChunks.includes('Размышление'));
   assert.strictEqual(res.content, 'Результат');
 });
+
+test('для provider ollama с thinking: true и auto effort устанавливается reasoning_effort: none', async () => {
+  catalogCache.ollama = [
+    { id: 'qwen3:8b', name: 'Qwen 3 8B', thinking: true }
+  ];
+  const mock = mockSSE();
+
+  await streamChatCompletion({
+    provider: 'ollama',
+    apiKey: 'ollama',
+    model: 'qwen3:8b',
+    messages: [{ role: 'user', content: 'test' }],
+    reasoningEffort: 'auto'
+  });
+
+  const { body } = mock.getRequest();
+  assert.strictEqual(body.reasoning_effort, 'none');
+  assert.strictEqual(body.reasoning, undefined);
+});
+
+test('для provider ollama с thinking: true и пустым reasoningEffort устанавливается reasoning_effort: none', async () => {
+  catalogCache.ollama = [
+    { id: 'qwen3:8b', name: 'Qwen 3 8B', thinking: true }
+  ];
+  const mock = mockSSE();
+
+  await streamChatCompletion({
+    provider: 'ollama',
+    apiKey: 'ollama',
+    model: 'qwen3:8b',
+    messages: [{ role: 'user', content: 'test' }]
+  });
+
+  const { body } = mock.getRequest();
+  assert.strictEqual(body.reasoning_effort, 'none');
+});
+
+test('для provider ollama с thinking: false и auto effort параметр reasoning_effort не отправляется', async () => {
+  catalogCache.ollama = [
+    { id: 'llama3:8b', name: 'Llama 3 8B', thinking: false }
+  ];
+  const mock = mockSSE();
+
+  await streamChatCompletion({
+    provider: 'ollama',
+    apiKey: 'ollama',
+    model: 'llama3:8b',
+    messages: [{ role: 'user', content: 'test' }],
+    reasoningEffort: 'auto'
+  });
+
+  const { body } = mock.getRequest();
+  assert.strictEqual(body.reasoning_effort, undefined);
+});
+
+test('для provider ollama с неизвестным thinking и auto effort параметр reasoning_effort не отправляется', async () => {
+  catalogCache.ollama = [];
+  const mock = mockSSE();
+
+  await streamChatCompletion({
+    provider: 'ollama',
+    apiKey: 'ollama',
+    model: 'unknown-model',
+    messages: [{ role: 'user', content: 'test' }],
+    reasoningEffort: 'auto'
+  });
+
+  const { body } = mock.getRequest();
+  assert.strictEqual(body.reasoning_effort, undefined);
+});
+

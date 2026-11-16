@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { commitFailedTurn } from '../src/history.js';
+import { commitFailedTurn } from '../src/agent/history.js';
 
 test('400 при пустом partial: возвращает false, сообщения пользователя нет в session.messages, а старый tool-результат на 5000 символов обрезан', () => {
   const session = {

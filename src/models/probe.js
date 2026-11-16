@@ -2,7 +2,7 @@
  * @fileoverview Проверка доступности моделей минимальными запросами (пробинг)
  */
 
-import { getProvider } from '../providers.js';
+import { getProvider } from '../llm/providers.js';
 import {
   STATUS_TTL_MS,
   classifyModelError,

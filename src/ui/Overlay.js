@@ -8,7 +8,7 @@ import { Picker } from './Picker.js';
 import { SecretInput } from './SecretInput.js';
 import { Approval } from './Approval.js';
 import { BrowserLogin } from './BrowserLogin.js';
-import { theme } from '../theme.js';
+import { theme } from '../render/theme.js';
 
 const h = React.createElement;
 
@@ -34,20 +34,6 @@ export function Overlay({ overlay }) {
   }
   if (overlay.kind === 'browser') {
     return h(BrowserLogin, overlay);
-  }
-  if (overlay.kind === 'recording') {
-    return h(
-      Box,
-      {
-        borderStyle: 'round',
-        borderColor: 'red',
-        paddingX: 1,
-        flexDirection: 'row',
-        width: '100%'
-      },
-      h(Text, { color: 'red' }, '● '),
-      h(Text, { color: t.text, bold: true }, overlay.text || 'Слушаю микрофон… Говорите (нажмите Enter или Ctrl+S для отправки)')
-    );
   }
   if (overlay.kind === 'loading') {
     return h(

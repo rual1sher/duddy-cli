@@ -16,10 +16,13 @@ const {
   updateKind,
   fetchReleases,
   checkForUpdate,
-  updateMessage,
+  updateMessage
+} = await import('../src/update/update.js');
+
+const {
   detectInstall,
   runUpdate
-} = await import('../src/update.js');
+} = await import('../src/update/updateInstall.js');
 
 const originalFetch = globalThis.fetch;
 const originalNoUpdateCheck = process.env.DUDDY_NO_UPDATE_CHECK;

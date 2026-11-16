@@ -4,8 +4,8 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { renderMarkdown } from '../formatter.js';
-import { theme } from '../theme.js';
+import { renderMarkdown } from '../render/formatter.js';
+import { theme } from '../render/theme.js';
 
 const h = React.createElement;
 
@@ -36,10 +36,12 @@ export function LiveOutput({ liveTools, liveText }) {
             h(
               Box,
               { flexDirection: 'row' },
-              h(Text, { color: t.accent }, '⏺ '),
-              h(Text, { bold: true, color: t.text }, tool.display?.title || tool.name),
-              tool.target ? h(Text, { color: t.muted }, ` ${tool.target}`) : null,
-              h(Text, { color: t.muted }, '…')
+              h(Box, { flexShrink: 0 }, h(Text, { color: t.accent }, '⏺ ')),
+              h(Box, { flexShrink: 0 }, h(Text, { bold: true, color: t.text }, tool.display?.title || tool.name)),
+              tool.target
+                ? h(Text, { color: t.muted, wrap: 'truncate-middle' }, ` ${tool.target}`)
+                : null,
+              h(Box, { flexShrink: 0 }, h(Text, { color: t.muted }, '…'))
             ),
             filteredLogs.map((log, i) =>
               h(

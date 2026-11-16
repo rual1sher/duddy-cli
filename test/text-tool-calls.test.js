@@ -1,8 +1,8 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractTextToolCalls } from '../src/llm/toolCalls.js';
+import { extractTextToolCalls } from '../src/llm/textToolCalls.js';
 import { AGENT_TOOLS } from '../src/tools/definitions.js';
-import { runAgentTurn } from '../src/agent.js';
+import { runAgentTurn } from '../src/agent/agent.js';
 
 const originalFetch = globalThis.fetch;
 

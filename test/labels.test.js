@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { removeBrokenLabels } from '../src/images.js';
+import { removeBrokenLabels } from '../src/images/images.js';
 
 test('Backspace на последнем символе подписи удаляет её целиком', () => {
   const prev = 'Перед [Изображение #1]';

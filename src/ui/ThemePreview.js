@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { THEMES } from '../theme.js';
+import { THEMES } from '../render/theme.js';
 
 const h = React.createElement;
 

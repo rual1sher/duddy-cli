@@ -5,21 +5,6 @@
 // Максимальный возраст модели в каталоге (2 года)
 export const MAX_MODEL_AGE_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 
-export const GOOGLE_EXCLUDED_SUBSTRINGS = [
-  'tts',
-  'image',
-  'banana',
-  'lyria',
-  'robotics',
-  'deep-research',
-  'antigravity',
-  'computer-use',
-  'transcribe',
-  'customtools',
-  'embedding',
-  'aqa'
-];
-
 export const MIN_CODE_MODEL_PARAMS_B = 20;
 
 /**
@@ -64,78 +49,4 @@ export function isCodeUnfit(id) {
   }
 
   return false;
-}
-
-function isGemma(id) {
-  return id.toLowerCase().startsWith('gemma');
-}
-
-function isLatest(id) {
-  return id.toLowerCase().includes('-latest');
-}
-
-function getTier(id) {
-  const lower = id.toLowerCase();
-  if (lower.includes('pro')) return 1;
-  if (lower.includes('flash-lite') || lower.includes('flash_lite') || lower.includes('lite')) return 3;
-  if (lower.includes('flash')) return 2;
-  return 4;
-}
-
-function getVersion(id) {
-  const match = id.match(/\d+(?:\.\d+)*/);
-  return match ? match[0] : '';
-}
-
-/**
- * Сортировка моделей Google Gemini согласно правилам
- *
- * @param {Array<object>} models - Массив отфильтрованных моделей Google
- * @returns {Array<object>}
- */
-export function sortGoogleModels(models) {
-  return [...models].sort((a, b) => {
-    const aId = a.id;
-    const bId = b.id;
-
-    // gemma-* в конце
-    const aGemma = isGemma(aId);
-    const bGemma = isGemma(bId);
-    if (aGemma !== bGemma) {
-      return aGemma ? 1 : -1;
-    }
-    if (aGemma && bGemma) {
-      return bId.localeCompare(aId, undefined, { numeric: true });
-    }
-
-    // Сначала алиасы с '-latest' (Pro → Flash → Flash-Lite)
-    const aLatest = isLatest(aId);
-    const bLatest = isLatest(bId);
-    if (aLatest !== bLatest) {
-      return aLatest ? -1 : 1;
-    }
-    if (aLatest && bLatest) {
-      const tierDiff = getTier(aId) - getTier(bId);
-      if (tierDiff !== 0) return tierDiff;
-      return bId.localeCompare(aId, undefined, { numeric: true });
-    }
-
-    // Затем остальные по убыванию версии
-    const aVer = getVersion(aId);
-    const bVer = getVersion(bId);
-    if (aVer && bVer && aVer !== bVer) {
-      const verDiff = bVer.localeCompare(aVer, undefined, { numeric: true });
-      if (verDiff !== 0) return verDiff;
-    } else if (aVer && !bVer) {
-      return -1;
-    } else if (!aVer && bVer) {
-      return 1;
-    }
-
-    // Внутри одной версии Pro раньше Flash раньше Lite
-    const tierDiff = getTier(aId) - getTier(bId);
-    if (tierDiff !== 0) return tierDiff;
-
-    return bId.localeCompare(aId, undefined, { numeric: true });
-  });
 }

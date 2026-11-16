@@ -4,9 +4,9 @@
 
 import React from 'react';
 import { Box, Text, Static } from 'ink';
-import { bannerLines } from '../banner.js';
-import { AnimatedBanner } from './AnimatedBanner.js';
-import { theme } from '../theme.js';
+import { bannerLines } from '../render/banner.js';
+import { theme } from '../render/theme.js';
+import { UserMessage } from './UserMessage.js';
 
 const h = React.createElement;
 
@@ -37,9 +37,8 @@ function renderTranscriptItem(item, index, session) {
     case 'user':
       return h(
         Box,
-        { key: `user-${index}`, marginTop: 1, flexDirection: 'row' },
-        h(Text, { color: t.subtle }, '> '),
-        h(Text, { color: t.text }, item.text)
+        { key: `user-${index}`, marginTop: 1 },
+        h(UserMessage, { text: item.text })
       );
 
     case 'assistant': {
@@ -86,15 +85,15 @@ function renderTranscriptItem(item, index, session) {
       const dotColor = !item.ok ? t.error : item.change ? t.success : t.subtle;
       const hasTitle = Boolean(item.title);
       const headerChildren = [
-        h(Text, { color: dotColor }, '⏺ '),
-        h(Text, { bold: true, color: t.text }, item.title || item.name)
+        h(Box, { flexShrink: 0 }, h(Text, { color: dotColor }, '⏺ ')),
+        h(Box, { flexShrink: 0 }, h(Text, { bold: true, color: t.text }, item.title || item.name))
       ];
 
       if (item.target) {
         if (hasTitle) {
-          headerChildren.push(h(Text, { color: t.muted }, ` ${item.target}`));
+          headerChildren.push(h(Text, { color: t.muted, wrap: 'truncate-middle' }, ` ${item.target}`));
         } else {
-          headerChildren.push(h(Text, { color: t.muted }, `(${item.target})`));
+          headerChildren.push(h(Text, { color: t.muted, wrap: 'truncate-middle' }, `(${item.target})`));
         }
       }
 
@@ -271,12 +270,6 @@ function renderTranscriptItem(item, index, session) {
  * @returns {React.ReactElement}
  */
 export function Transcript({ items, session, staticKey, flushed }) {
-  // Static печатается один раз, поэтому живой баннер рисуется в динамической
-  // области до первого сообщения, затем уходит в Static финальным кадром.
-  if (items.length === 1 && items[0].type === 'banner') {
-    return h(AnimatedBanner, { session });
-  }
-
   // Пока история помещается на экран, она рисуется в динамической области сверху,
   // чтобы поле ввода оставалось прижатым к низу.
   if (!flushed) {

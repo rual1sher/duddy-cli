@@ -26,7 +26,7 @@ const {
 } = await import('../src/models/status.js');
 
 const { isCodeUnfit } = await import('../src/models/filters.js');
-const { errorHint } = await import('../src/errors.js');
+const { errorHint } = await import('../src/llm/errors.js');
 
 test('isTemporaryOverload возвращает true для 503 и false для 400 без перегрузки', () => {
   assert.strictEqual(isTemporaryOverload(503), true);
@@ -68,9 +68,9 @@ test('isCodeUnfit определяет модели, непригодные дл
   assert.strictEqual(isCodeUnfit('qwen/qwen-2.5-coder-32b-instruct'), false);
 });
 
-test('errorHint для 403 с текстом про credits даёт подсказку про баланс xAI, а не «Ключ не подошёл»', () => {
+test('errorHint для 403 с текстом про credits даёт подсказку про баланс OpenRouter, а не «Ключ не подошёл»', () => {
   const err = { status: 403, message: "team doesn't have any credits" };
-  const session = { provider: 'xai', apiKey: 'k' };
+  const session = { provider: 'openrouter', apiKey: 'k' };
   const hint = errorHint(err, session);
-  assert.strictEqual(hint, 'На балансе xAI недостаточно средств — пополните счёт или выберите другую модель через /model');
+  assert.strictEqual(hint, 'На балансе OpenRouter недостаточно средств — пополните счёт или выберите другую модель через /model');
 });

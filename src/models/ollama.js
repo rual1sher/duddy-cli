@@ -2,7 +2,7 @@
  * @fileoverview Загрузка моделей локальной Ollama
  */
 
-import { ollamaHost } from '../providers.js';
+import { ollamaHost } from '../llm/providers.js';
 
 // Ollama на этой же машине отвечает мгновенно; долгое ожидание означает, что её нет
 const OLLAMA_TIMEOUT_MS = 1500;

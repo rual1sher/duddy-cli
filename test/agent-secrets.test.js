@@ -3,8 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { runAgentTurn } from '../src/agent.js';
-import { commitTurn } from '../src/history.js';
+import { runAgentTurn } from '../src/agent/agent.js';
+import { commitTurn } from '../src/agent/history.js';
 
 const originalFetch = globalThis.fetch;
 const originalCwd = process.cwd();

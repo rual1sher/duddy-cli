@@ -32,7 +32,13 @@ export async function requestApproval(name, relPath, ctx = {}, preview = [], { s
     return { approved: false, message: msg };
   }
 
-  const answer = await ctx.approve({ name, relPath, preview, sensitive, scope: commandKey ? 'command' : 'file' });
+  const waitStart = Date.now();
+  let answer;
+  try {
+    answer = await ctx.approve({ name, relPath, preview, sensitive, scope: commandKey ? 'command' : 'file' });
+  } finally {
+    ctx.approvalWaitMs = (ctx.approvalWaitMs || 0) + (Date.now() - waitStart);
+  }
 
   if (answer === 'all' && !sensitive) {
     if (commandKey) {
